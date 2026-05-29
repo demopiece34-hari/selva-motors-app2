@@ -707,6 +707,92 @@ def distance_meter(lat1, lon1, lat2, lon2):
     return round(2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a)), 2)
 
 
+
+def bearing_to_company(user_lat, user_lon, company_lat=COMPANY_LAT, company_lon=COMPANY_LON):
+    try:
+        lat1 = math.radians(float(user_lat))
+        lat2 = math.radians(float(company_lat))
+        diff_lon = math.radians(float(company_lon) - float(user_lon))
+
+        x = math.sin(diff_lon) * math.cos(lat2)
+        y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(diff_lon)
+        bearing = (math.degrees(math.atan2(x, y)) + 360) % 360
+        return bearing
+    except Exception:
+        return None
+
+
+def compass_direction(bearing):
+    if bearing is None:
+        return "Unknown"
+    dirs = [
+        "North", "North-East", "East", "South-East",
+        "South", "South-West", "West", "North-West"
+    ]
+    idx = round(bearing / 45) % 8
+    return dirs[idx]
+
+
+def direction_hint(direction):
+    hints = {
+        "North": "Move straight towards North side.",
+        "North-East": "Move towards right-front / North-East side.",
+        "East": "Move towards right side / East side.",
+        "South-East": "Move towards right-back / South-East side.",
+        "South": "Move towards South side.",
+        "South-West": "Move towards left-back / South-West side.",
+        "West": "Move towards left side / West side.",
+        "North-West": "Move towards left-front / North-West side.",
+        "Unknown": "Direction not detected."
+    }
+    return hints.get(direction, "Direction not detected.")
+
+
+def extract_gps_from_browser_location(loc):
+    try:
+        if not loc:
+            return None, None, None
+
+        coords = loc.get("coords", loc)
+        lat = coords.get("latitude")
+        lon = coords.get("longitude")
+        accuracy = coords.get("accuracy", "")
+
+        if lat is None or lon is None:
+            return None, None, None
+
+        return float(lat), float(lon), accuracy
+    except Exception:
+        return None, None, None
+
+
+def auto_save_attendance_from_gps(lat, lon, selfie_saved="No"):
+    user_id = st.session_state["user_id"]
+    name = st.session_state["employee_name"]
+    user_role = st.session_state["role"]
+
+    dist = distance_meter(lat, lon, COMPANY_LAT, COMPANY_LON)
+
+    if dist > ALLOWED_RADIUS_METER:
+        return False, dist
+
+    append_row("attendance", {
+        "Date": today_str(),
+        "Time": time_str(),
+        "User ID": user_id,
+        "Technician Name": name,
+        "Role": user_role,
+        "Attendance Status": "Present",
+        "Latitude": lat,
+        "Longitude": lon,
+        "Distance Meter": dist,
+        "Selfie Saved": selfie_saved
+    })
+
+    return True, dist
+
+
+
 def save_uploaded_file(uploaded_file, folder=UPLOAD_DIR):
     if uploaded_file is None:
         return ""
@@ -1405,7 +1491,7 @@ def page_dashboard():
 # ATTENDANCE
 # ============================================================
 def page_attendance():
-    page_hero("Attendance", "Mark attendance with GPS radius and selfie proof.", "GPS Enabled")
+    page_hero("Smart Attendance", "Click Get Current GPS. If you are inside company radius, attendance will be marked automatically.", "Auto GPS")
 
     user_id = st.session_state["user_id"]
     name = st.session_state["employee_name"]
@@ -1423,48 +1509,101 @@ def page_attendance():
         st.dataframe(exists, use_container_width=True)
         return
 
-    c1, c2 = st.columns(2)
+    st.markdown("<div class='section-title'>GPS Attendance</div>", unsafe_allow_html=True)
 
-    with c1:
-        st.subheader("GPS Details")
-        lat = st.text_input("Latitude")
-        lon = st.text_input("Longitude")
+    selfie = st.camera_input("Optional Selfie Attendance")
 
-        if get_geolocation:
-            if st.button("Get Current GPS"):
-                loc = get_geolocation()
+    selfie_saved = "No"
+    if selfie:
+        save_uploaded_file(selfie)
+        selfie_saved = "Yes"
+
+    st.info("Browser location permission allow pannunga. GPS correct ah vandha attendance automatic save aagum.")
+
+    if get_geolocation is None:
+        st.error("GPS component not available. requirements.txt la streamlit-js-eval irukkanum.")
+        st.code("pip install streamlit-js-eval")
+        return
+
+    loc = get_geolocation()
+
+    if loc:
+        lat, lon, accuracy = extract_gps_from_browser_location(loc)
+
+        if lat is None or lon is None:
+            st.warning("Location detected aagala. Browser permission allow pannunga.")
+            with st.expander("Browser location response"):
                 st.write(loc)
-                st.info("If GPS values show here, copy latitude and longitude into the fields.")
+            return
 
-        status = st.selectbox("Attendance Status", ["Present", "Half Day Leave", "Late Present"])
-
-    with c2:
-        st.subheader("Selfie")
-        selfie = st.camera_input("Capture Selfie")
-
-    dist = ""
-    inside = False
-    if lat and lon:
         dist = distance_meter(lat, lon, COMPANY_LAT, COMPANY_LON)
+        bearing = bearing_to_company(lat, lon)
+        direction = compass_direction(bearing)
+        hint = direction_hint(direction)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Your Latitude", f"{lat:.6f}")
+        c2.metric("Your Longitude", f"{lon:.6f}")
+        c3.metric("Distance", f"{dist} m")
+        c4.metric("Direction", direction)
+
+        if accuracy:
+            st.caption(f"GPS Accuracy: {accuracy} meter approx.")
+
         if dist <= ALLOWED_RADIUS_METER:
-            inside = True
-            st.success(f"Inside company radius. Distance: {dist} meter")
+            ok, saved_dist = auto_save_attendance_from_gps(lat, lon, selfie_saved=selfie_saved)
+            if ok:
+                st.success(f"Attendance auto-marked successfully. Distance: {saved_dist} meter.")
+                st.rerun()
+            else:
+                st.error("Attendance auto-save failed.")
         else:
-            st.error(f"Outside company radius. Distance: {dist} meter")
+            st.error("You are outside company location radius. Attendance not marked.")
+            st.markdown(f"""
+            <div class="glow-card">
+                <h3 style="margin:0;color:#991b1b;">Direction Guide</h3>
+                <p style="margin:8px 0 0 0;color:#334155;">
+                    Company location is approximately <b>{dist} meter</b> away.
+                    Move towards <b>{direction}</b>. {hint}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
-    if st.button("Mark Attendance", use_container_width=True):
-        if not lat or not lon:
-            st.error("Latitude and Longitude required.")
+    else:
+        st.warning("Click / allow location permission in browser. Location not received yet.")
+
+    st.divider()
+    st.markdown("<div class='section-title'>Manual Fallback</div>", unsafe_allow_html=True)
+    st.caption("GPS auto detect fail aana mattum manual latitude/longitude use pannunga.")
+
+    c1, c2 = st.columns(2)
+    lat_manual = c1.text_input("Manual Latitude")
+    lon_manual = c2.text_input("Manual Longitude")
+
+    if lat_manual and lon_manual:
+        manual_dist = distance_meter(lat_manual, lon_manual, COMPANY_LAT, COMPANY_LON)
+        manual_bearing = bearing_to_company(lat_manual, lon_manual)
+        manual_direction = compass_direction(manual_bearing)
+
+        c1, c2 = st.columns(2)
+        c1.metric("Manual Distance", f"{manual_dist} m")
+        c2.metric("Direction", manual_direction)
+
+        if manual_dist <= ALLOWED_RADIUS_METER:
+            st.success("Inside company radius.")
+        else:
+            st.error(f"Outside company radius. Move towards {manual_direction}.")
+
+    if st.button("Mark Attendance Using Manual Location", use_container_width=True):
+        if not lat_manual or not lon_manual:
+            st.error("Manual Latitude and Longitude required.")
             return
 
-        if not inside:
-            st.error("Attendance blocked outside company radius.")
-            return
+        manual_dist = distance_meter(lat_manual, lon_manual, COMPANY_LAT, COMPANY_LON)
 
-        selfie_saved = "No"
-        if selfie:
-            save_uploaded_file(selfie)
-            selfie_saved = "Yes"
+        if manual_dist > ALLOWED_RADIUS_METER:
+            st.error("Attendance blocked. You are outside company radius.")
+            return
 
         append_row("attendance", {
             "Date": today,
@@ -1472,13 +1611,13 @@ def page_attendance():
             "User ID": user_id,
             "Technician Name": name,
             "Role": user_role,
-            "Attendance Status": status,
-            "Latitude": lat,
-            "Longitude": lon,
-            "Distance Meter": dist,
+            "Attendance Status": "Present",
+            "Latitude": lat_manual,
+            "Longitude": lon_manual,
+            "Distance Meter": manual_dist,
             "Selfie Saved": selfie_saved
         })
-        st.success("Attendance saved to Excel.")
+        st.success("Attendance saved using manual location.")
         st.rerun()
 
 
