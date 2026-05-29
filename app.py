@@ -16,6 +16,8 @@ import streamlit as st
 import plotly.express as px
 from PIL import Image
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 
 import pdfplumber
 from PyPDF2 import PdfReader
@@ -913,4 +915,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
