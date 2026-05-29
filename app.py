@@ -2,916 +2,1389 @@ import os
 import re
 import io
 import json
-import math
-import time
 import uuid
-import hashlib
+import math
+import base64
+import shutil
 import zipfile
+from datetime import datetime, date
 from pathlib import Path
-from datetime import datetime, date, timedelta
-from zoneinfo import ZoneInfo
 
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import numpy as np
 import plotly.express as px
+
 from PIL import Image
-
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
-
-import pdfplumber
-from PyPDF2 import PdfReader
-import pytesseract
+import qrcode
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.pdfgen import canvas
-import qrcode
 
 try:
-    from streamlit_js_eval import streamlit_js_eval
+    import pdfplumber
 except Exception:
-    streamlit_js_eval = None
+    pdfplumber = None
 
 try:
-    import face_recognition
+    import PyPDF2
 except Exception:
-    face_recognition = None
+    PyPDF2 = None
 
-APP_TZ = ZoneInfo("Asia/Kolkata")
-BASE_DIR = Path(__file__).parent
-UPLOAD_DIR = BASE_DIR / "uploads"
-INVOICE_DIR = BASE_DIR / "generated_invoices"
-BACKUP_DIR = BASE_DIR / "backups"
-for p in [UPLOAD_DIR, INVOICE_DIR, BACKUP_DIR]:
-    p.mkdir(exist_ok=True)
+try:
+    import pytesseract
+except Exception:
+    pytesseract = None
 
-st.set_page_config(page_title="Selva Motors Smart ERP", page_icon="🏍️", layout="wide")
+try:
+    import cv2
+except Exception:
+    cv2 = None
 
-# --------------------------- UI STYLE ---------------------------
-def inject_css():
-    st.markdown(
-        """
-        <style>
-        .stApp {background: linear-gradient(135deg,#f7f9fc 0%,#eef3ff 100%);} 
-        .hero-card{padding:22px;border-radius:20px;background:white;box-shadow:0 8px 30px rgba(19,35,65,.08);border:1px solid #e9eef8;}
-        .metric-card{padding:18px;border-radius:18px;background:#ffffff;box-shadow:0 4px 18px rgba(0,0,0,.06);}
-        .small-muted{color:#6b7280;font-size:13px;}
-        .danger-box{padding:12px;border-radius:12px;background:#fff1f2;border:1px solid #fecdd3;}
-        .success-box{padding:12px;border-radius:12px;background:#f0fdf4;border:1px solid #bbf7d0;}
-        .stButton>button{border-radius:12px;font-weight:700;border:0;background:#111827;color:white;}
-        .stDownloadButton>button{border-radius:12px;font-weight:700;}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-inject_css()
-
-# --------------------------- DATABASE ---------------------------
-def get_database_url():
-    # Streamlit secrets example:
-    # MYSQL_URL="mysql+pymysql://user:password@host:3306/dbname"
-    if "MYSQL_URL" in st.secrets:
-        return st.secrets["MYSQL_URL"]
-    env_url = os.getenv("MYSQL_URL")
-    if env_url:
-        return env_url
-    return f"sqlite:///{BASE_DIR / 'smart_showroom_erp.db'}"
-
-@st.cache_resource
-def db_engine():
-    return create_engine(get_database_url(), pool_pre_ping=True, future=True)
-
-engine = db_engine()
-
-def run_sql(sql, params=None, fetch=False):
-    try:
-        with engine.begin() as conn:
-            result = conn.execute(text(sql), params or {})
-            if fetch:
-                return [dict(row._mapping) for row in result]
-    except SQLAlchemyError as e:
-        st.error(f"Database error: {e}")
-        return [] if fetch else None
+try:
+    from streamlit_js_eval import get_geolocation
+except Exception:
+    get_geolocation = None
 
 
-def init_db():
-    ddl = [
-        """
-        CREATE TABLE IF NOT EXISTS employees(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            employee_id VARCHAR(50) UNIQUE,
-            name VARCHAR(120), role VARCHAR(50), branch VARCHAR(80),
-            password_hash VARCHAR(128), device_id VARCHAR(120),
-            registered_face_path TEXT, active INTEGER DEFAULT 1,
-            created_at VARCHAR(40)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS attendance(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            employee_id VARCHAR(50), name VARCHAR(120), role VARCHAR(50), branch VARCHAR(80),
-            date VARCHAR(20), time VARCHAR(30), status VARCHAR(50),
-            latitude REAL, longitude REAL, distance_m REAL, gps_accuracy REAL,
-            wifi_ssid VARCHAR(120), selfie_path TEXT, face_verified INTEGER,
-            fake_gps_flag INTEGER, device_id VARCHAR(120), remarks TEXT,
-            created_at VARCHAR(40)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS invoices(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            invoice_id VARCHAR(80) UNIQUE, upload_date VARCHAR(30), employee_id VARCHAR(50), branch VARCHAR(80),
-            invoice_date VARCHAR(30), job_card_no VARCHAR(120), job_card_last8 VARCHAR(20),
-            vehicle_reg_no VARCHAR(40), customer_name VARCHAR(160), vehicle_model VARCHAR(120), mobile_number VARCHAR(30),
-            spare_parts_count INTEGER, total_spare_amount REAL, oil_change_status VARCHAR(10),
-            total_labour_amount REAL, gst_amount REAL, total_invoice_value REAL,
-            ocr_confidence REAL, duplicate_flag INTEGER, source_file TEXT, raw_text TEXT, created_at VARCHAR(40)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS inventory(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            spare_code VARCHAR(80) UNIQUE, spare_name VARCHAR(160), category VARCHAR(80),
-            stock_qty INTEGER, min_qty INTEGER, purchase_price REAL, selling_price REAL,
-            supplier VARCHAR(160), barcode VARCHAR(120), updated_at VARCHAR(40)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS notifications(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type VARCHAR(80), title VARCHAR(160), message TEXT,
-            severity VARCHAR(30), is_read INTEGER DEFAULT 0, created_at VARCHAR(40)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS customers(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            vehicle_reg_no VARCHAR(40), customer_name VARCHAR(160), mobile_number VARCHAR(30),
-            vehicle_model VARCHAR(120), warranty_history TEXT, insurance_expiry VARCHAR(30), service_due_date VARCHAR(30),
-            updated_at VARCHAR(40)
-        )
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS settings(
-            key VARCHAR(80) PRIMARY KEY, value TEXT
-        )
-        """,
+# =========================================================
+# PAGE CONFIG
+# =========================================================
+st.set_page_config(
+    page_title="Selva Motors Smart ERP",
+    page_icon="🏍️",
+    layout="wide"
+)
+
+# =========================================================
+# CONSTANTS
+# =========================================================
+APP_NAME = "SELVA MOTORS SMART ERP"
+DATA_DIR = Path("data")
+BACKUP_DIR = Path("backups")
+PDF_DIR = Path("generated_pdfs")
+UPLOAD_DIR = Path("uploads")
+EXCEL_FILE = DATA_DIR / "selva_motors_erp_data.xlsx"
+
+COMPANY_LAT = 11.1271       # change your showroom latitude
+COMPANY_LON = 78.6569       # change your showroom longitude
+ALLOWED_RADIUS_METERS = 300 # change radius
+OFFICE_WIFI = "SELVA_MOTORS_WIFI"
+
+DATA_DIR.mkdir(exist_ok=True)
+BACKUP_DIR.mkdir(exist_ok=True)
+PDF_DIR.mkdir(exist_ok=True)
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+# =========================================================
+# CSS
+# =========================================================
+st.markdown("""
+<style>
+.main { background: #f5f7fb; }
+.block-container { padding-top: 1.2rem; }
+.hero-title {
+    font-size: 34px;
+    font-weight: 900;
+    color: #0f172a;
+    padding: 10px 0;
+}
+.small-muted { color:#64748b; font-size:14px; }
+.card {
+    padding: 18px;
+    border-radius: 16px;
+    background: white;
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+    margin-bottom: 16px;
+}
+.metric-card {
+    padding: 18px;
+    border-radius: 18px;
+    background: linear-gradient(135deg,#111827,#334155);
+    color: white;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+}
+.metric-card h2 { margin:0; font-size:28px; }
+.metric-card p { margin:0; color:#cbd5e1; }
+.stButton>button {
+    border-radius: 10px;
+    font-weight: 700;
+}
+.warning-box {
+    border-left: 5px solid #f59e0b;
+    padding: 12px;
+    background: #fffbeb;
+    border-radius: 10px;
+}
+.success-box {
+    border-left: 5px solid #22c55e;
+    padding: 12px;
+    background: #f0fdf4;
+    border-radius: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# =========================================================
+# EXCEL DATABASE LAYER - NO MYSQL, NO SQLALCHEMY
+# =========================================================
+SHEETS = {
+    "employees": [
+        "employee_id", "password", "name", "role", "branch", "mobile",
+        "device_id", "face_image_path", "status", "created_at"
+    ],
+    "attendance": [
+        "attendance_id", "date", "time", "employee_id", "employee_name",
+        "role", "branch", "status", "latitude", "longitude", "distance_m",
+        "wifi_ssid", "gps_accuracy", "selfie_path", "face_verified",
+        "remarks", "created_at"
+    ],
+    "invoices": [
+        "invoice_id", "upload_date", "employee_id", "employee_name", "branch",
+        "invoice_date", "job_card_no", "job_card_last8", "vehicle_reg_no",
+        "spare_count", "total_spare_amount", "oil_change_status",
+        "total_labour_amount", "gst_amount", "total_invoice_value",
+        "customer_name", "vehicle_model", "mobile_number", "ocr_confidence",
+        "duplicate_status", "source_file", "raw_text", "created_at"
+    ],
+    "inventory": [
+        "spare_id", "spare_name", "part_no", "category", "supplier",
+        "stock_qty", "min_stock", "unit_price", "last_updated"
+    ],
+    "customers": [
+        "customer_id", "customer_name", "mobile_number", "vehicle_reg_no",
+        "vehicle_model", "warranty_history", "insurance_expiry",
+        "service_due_date", "created_at"
+    ],
+    "notifications": [
+        "notification_id", "date", "time", "type", "message", "status", "created_at"
+    ],
+    "manual_invoices": [
+        "manual_invoice_id", "date", "customer_name", "mobile_number",
+        "vehicle_reg_no", "vehicle_model", "spare_total", "labour_total",
+        "gst_amount", "discount", "grand_total", "pdf_path", "created_at"
+    ],
+    "settings": [
+        "key", "value", "updated_at"
     ]
-    for statement in ddl:
-        run_sql(statement)
+}
+
+DEFAULT_EMPLOYEES = [
+    ["superadmin", "admin123", "Super Admin", "Super Admin", "Main Branch", "9999999999", "", "", "Active", ""],
+    ["mohan", "mohan", "Mohan", "Employee", "Main Branch", "9000000001", "", "", "Active", ""],
+    ["ajay", "ajay", "Ajay", "Employee", "Main Branch", "9000000002", "", "", "Active", ""],
+    ["prathisha", "prathisha", "Prathisha", "Branch Admin", "Main Branch", "9000000003", "", "", "Active", ""],
+    ["manager", "manager123", "Manager", "Manager", "Main Branch", "9000000004", "", "", "Active", ""],
+]
+
+DEFAULT_INVENTORY = [
+    ["SP001", "Engine Oil", "OIL-10W30", "Oil", "Hero Supplier", 20, 5, 450, ""],
+    ["SP002", "Air Filter", "AF-HERO", "Spare", "Hero Supplier", 12, 5, 180, ""],
+    ["SP003", "Brake Shoe", "BS-HERO", "Spare", "Hero Supplier", 8, 4, 350, ""],
+    ["SP004", "Spark Plug", "PLUG-HERO", "Spare", "Hero Supplier", 15, 5, 120, ""],
+]
 
 
-def now_str():
-    return datetime.now(APP_TZ).strftime("%Y-%m-%d %H:%M:%S")
+def now_dt():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def today_str():
-    return datetime.now(APP_TZ).strftime("%Y-%m-%d")
+    return datetime.now().strftime("%d-%m-%Y")
 
 
-def hash_password(password):
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+def time_str():
+    return datetime.now().strftime("%I:%M:%S %p")
 
 
-def seed_data():
-    rows = run_sql("SELECT COUNT(*) AS c FROM employees", fetch=True)
-    if rows and rows[0]["c"] == 0:
-        users = [
-            ("superadmin", "Super Admin", "Super Admin", "Head Office", "admin123"),
-            ("manager", "Manager", "Manager", "Main Branch", "manager123"),
-            ("mohan", "Mohan", "Employee", "Main Branch", "mohan"),
-            ("ajay", "Ajay", "Employee", "Main Branch", "ajay"),
-            ("prathisha", "Prathisha", "Branch Admin", "Main Branch", "prathisha"),
-            ("vengadesh", "Vegadesh", "Employee", "Main Branch", "vengadesh"),
-        ]
-        for emp_id, name, role, branch, pwd in users:
-            run_sql(
-                """INSERT INTO employees(employee_id,name,role,branch,password_hash,created_at)
-                   VALUES(:employee_id,:name,:role,:branch,:password_hash,:created_at)""",
-                dict(employee_id=emp_id, name=name, role=role, branch=branch, password_hash=hash_password(pwd), created_at=now_str()),
-            )
-    default_settings = {
-        "company_lat": "13.0827",
-        "company_lng": "80.2707",
-        "allowed_radius_m": "250",
-        "office_wifi_ssid": "SELVA_MOTORS_WIFI",
-        "session_timeout_min": "30",
-        "gst_percent": "18",
-    }
-    for k, v in default_settings.items():
-        exists = run_sql("SELECT key FROM settings WHERE key=:k", {"k": k}, fetch=True)
-        if not exists:
-            run_sql("INSERT INTO settings(key,value) VALUES(:k,:v)", {"k": k, "v": v})
+def create_excel_if_missing():
+    if EXCEL_FILE.exists():
+        return
 
-init_db()
-seed_data()
+    with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl") as writer:
+        for sheet, cols in SHEETS.items():
+            df = pd.DataFrame(columns=cols)
+            if sheet == "employees":
+                df = pd.DataFrame(DEFAULT_EMPLOYEES, columns=cols)
+                df["created_at"] = now_dt()
+            if sheet == "inventory":
+                df = pd.DataFrame(DEFAULT_INVENTORY, columns=cols)
+                df["last_updated"] = now_dt()
+            if sheet == "settings":
+                df = pd.DataFrame([
+                    ["company_lat", str(COMPANY_LAT), now_dt()],
+                    ["company_lon", str(COMPANY_LON), now_dt()],
+                    ["allowed_radius_m", str(ALLOWED_RADIUS_METERS), now_dt()],
+                    ["office_wifi", OFFICE_WIFI, now_dt()],
+                ], columns=cols)
+            df.to_excel(writer, sheet_name=sheet, index=False)
 
 
-def read_table(table):
+def read_sheet(sheet_name):
+    create_excel_if_missing()
     try:
-        return pd.read_sql(f"SELECT * FROM {table}", engine)
+        df = pd.read_excel(EXCEL_FILE, sheet_name=sheet_name, engine="openpyxl")
     except Exception:
-        return pd.DataFrame()
+        df = pd.DataFrame(columns=SHEETS[sheet_name])
+
+    for col in SHEETS[sheet_name]:
+        if col not in df.columns:
+            df[col] = ""
+
+    return df[SHEETS[sheet_name]].fillna("")
 
 
-def get_setting(key, default=""):
-    row = run_sql("SELECT value FROM settings WHERE key=:k", {"k": key}, fetch=True)
-    return row[0]["value"] if row else default
+def write_sheet(sheet_name, df):
+    create_excel_if_missing()
+
+    all_sheets = {}
+    for name in SHEETS:
+        if name == sheet_name:
+            temp = df.copy()
+            for col in SHEETS[name]:
+                if col not in temp.columns:
+                    temp[col] = ""
+            all_sheets[name] = temp[SHEETS[name]]
+        else:
+            all_sheets[name] = read_sheet(name)
+
+    with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl", mode="w") as writer:
+        for name, sheet_df in all_sheets.items():
+            sheet_df.to_excel(writer, sheet_name=name, index=False)
 
 
-def set_setting(key, value):
-    run_sql("DELETE FROM settings WHERE key=:k", {"k": key})
-    run_sql("INSERT INTO settings(key,value) VALUES(:k,:v)", {"k": key, "v": str(value)})
+def append_row(sheet_name, row_dict):
+    df = read_sheet(sheet_name)
+    for col in SHEETS[sheet_name]:
+        if col not in row_dict:
+            row_dict[col] = ""
+    new_row = pd.DataFrame([row_dict])[SHEETS[sheet_name]]
+    df = pd.concat([df, new_row], ignore_index=True)
+    write_sheet(sheet_name, df)
 
 
-def notify(kind, title, message, severity="info"):
-    run_sql(
-        "INSERT INTO notifications(type,title,message,severity,created_at) VALUES(:type,:title,:message,:severity,:created_at)",
-        dict(type=kind, title=title, message=message, severity=severity, created_at=now_str()),
-    )
-
-# --------------------------- AUTH ---------------------------
-def current_user():
-    return st.session_state.get("user")
-
-
-def logout():
-    st.session_state.clear()
-    st.rerun()
+def add_notification(n_type, message):
+    append_row("notifications", {
+        "notification_id": str(uuid.uuid4())[:8],
+        "date": today_str(),
+        "time": time_str(),
+        "type": n_type,
+        "message": message,
+        "status": "Unread",
+        "created_at": now_dt()
+    })
 
 
-def login_page():
-    st.markdown("<div class='hero-card'><h1>🏍️ Selva Motors Smart ERP</h1><p class='small-muted'>Attendance • Invoice OCR • Inventory • Analytics • Reports</p></div>", unsafe_allow_html=True)
-    st.write("")
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        emp_id = st.text_input("Employee/User ID", value="superadmin")
-        password = st.text_input("Password", type="password", value="admin123")
-        device_id = st.text_input("Device Code", value="demo-device", help="Use same device code to restrict login per employee.")
-        use_otp = st.checkbox("OTP login verification", value=False)
-        if use_otp and st.button("Generate OTP"):
-            otp = str(uuid.uuid4().int)[0:6]
-            st.session_state["otp"] = otp
-            st.info(f"Demo OTP: {otp}. Production la email/SMS gateway connect pannalam.")
-        otp_input = st.text_input("OTP", disabled=not use_otp)
-        if st.button("Login"):
-            rows = run_sql("SELECT * FROM employees WHERE employee_id=:e AND active=1", {"e": emp_id}, fetch=True)
-            if not rows or rows[0]["password_hash"] != hash_password(password):
-                st.error("Invalid login")
-            elif use_otp and otp_input != st.session_state.get("otp"):
-                st.error("Invalid OTP")
-            elif rows[0].get("device_id") and rows[0].get("device_id") != device_id:
-                st.error("Device restriction enabled. This employee is linked with another device.")
-            else:
-                if not rows[0].get("device_id"):
-                    run_sql("UPDATE employees SET device_id=:d WHERE employee_id=:e", {"d": device_id, "e": emp_id})
-                st.session_state["user"] = rows[0]
-                st.session_state["login_time"] = time.time()
-                st.success("Login successful")
-                st.rerun()
-    with col2:
-        st.info("Demo Login: superadmin/admin123, mohan/mohan, ajay/ajay, prathisha/prathisha")
-        st.warning("Production note: OTP needs SMTP/Twilio/WhatsApp Business API credentials.")
+create_excel_if_missing()
 
 
-def check_session_timeout():
-    timeout = int(float(get_setting("session_timeout_min", "30"))) * 60
-    if current_user() and time.time() - st.session_state.get("login_time", time.time()) > timeout:
-        st.warning("Session timeout. Please login again.")
-        logout()
-
-# --------------------------- GPS / ATTENDANCE ---------------------------
-def haversine_m(lat1, lon1, lat2, lon2):
-    radius = 6371000
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-
-def get_browser_location():
-    if streamlit_js_eval is None:
-        st.warning("Install streamlit-js-eval for live GPS: pip install streamlit-js-eval")
+# =========================================================
+# AUTH
+# =========================================================
+def login_user(employee_id, password):
+    emp = read_sheet("employees")
+    emp["employee_id"] = emp["employee_id"].astype(str)
+    emp["password"] = emp["password"].astype(str)
+    row = emp[(emp["employee_id"] == str(employee_id)) & (emp["password"] == str(password))]
+    if row.empty:
         return None
-    location = streamlit_js_eval(
-        js_expressions="""
-        new Promise((resolve) => {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => resolve({latitude:pos.coords.latitude, longitude:pos.coords.longitude, accuracy:pos.coords.accuracy, speed:pos.coords.speed}),
-            (err) => resolve({error:err.message}),
-            {enableHighAccuracy:true, timeout:10000, maximumAge:0}
-          );
-        })
-        """,
-        key="gps_location",
-    )
-    return location
+    data = row.iloc[0].to_dict()
+    if str(data.get("status", "")).lower() != "active":
+        return None
+    return data
 
 
-def face_check(selfie_file, employee):
-    if not selfie_file:
-        return False, "No selfie"
-    if face_recognition is None:
-        return False, "face_recognition package not installed"
-    ref_path = employee.get("registered_face_path")
-    if not ref_path or not Path(ref_path).exists():
-        return False, "Reference face not registered"
+def require_login():
+    if not st.session_state.get("logged_in"):
+        st.warning("Please login first.")
+        st.stop()
+
+
+def is_admin():
+    return st.session_state.get("role") in ["Super Admin", "Branch Admin", "Manager"]
+
+
+# =========================================================
+# GPS / ATTENDANCE HELPERS
+# =========================================================
+def haversine_distance(lat1, lon1, lat2, lon2):
     try:
-        selfie_img = face_recognition.load_image_file(selfie_file)
-        ref_img = face_recognition.load_image_file(ref_path)
-        selfie_enc = face_recognition.face_encodings(selfie_img)
-        ref_enc = face_recognition.face_encodings(ref_img)
-        if not selfie_enc or not ref_enc:
-            return False, "Face not detected"
-        matched = face_recognition.compare_faces([ref_enc[0]], selfie_enc[0], tolerance=0.5)[0]
-        return bool(matched), "Verified" if matched else "Face mismatch"
-    except Exception as e:
-        return False, str(e)
-
-
-def attendance_page():
-    user = current_user()
-    st.header("📍 Smart GPS Attendance")
-    company_lat = float(get_setting("company_lat", "13.0827"))
-    company_lng = float(get_setting("company_lng", "80.2707"))
-    radius_m = float(get_setting("allowed_radius_m", "250"))
-    office_wifi = get_setting("office_wifi_ssid", "SELVA_MOTORS_WIFI")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Allowed Radius", f"{radius_m:.0f} m")
-    c2.metric("Office WiFi", office_wifi)
-    c3.metric("Today", today_str())
-
-    st.write("Click GPS button first. Mobile browser la location permission allow pannunga.")
-    location = get_browser_location()
-    manual_mode = st.checkbox("Manual GPS fallback for local testing")
-    if manual_mode:
-        lat = st.number_input("Latitude", value=company_lat, format="%.6f")
-        lng = st.number_input("Longitude", value=company_lng, format="%.6f")
-        acc = st.number_input("GPS Accuracy meters", value=20.0)
-        location = {"latitude": lat, "longitude": lng, "accuracy": acc, "speed": 0}
-
-    if location and isinstance(location, dict) and "error" in location:
-        st.error(f"GPS error: {location['error']}")
-
-    status = st.selectbox("Attendance Status", ["Present", "Half Day Leave", "Late Present"])
-    wifi_ssid = st.text_input("Office WiFi SSID", placeholder="SELVA_MOTORS_WIFI")
-    selfie = st.camera_input("Selfie Attendance")
-    remarks = st.text_area("Remarks", height=80)
-
-    if st.button("Mark Attendance"):
-        existing = run_sql(
-            "SELECT id FROM attendance WHERE employee_id=:e AND date=:d AND status!='Absent'",
-            {"e": user["employee_id"], "d": today_str()},
-            fetch=True,
-        )
-        if existing:
-            st.warning("Today attendance already marked")
-            return
-        if not location or "latitude" not in location:
-            st.error("GPS location missing. Attendance blocked.")
-            return
-        lat, lng = float(location["latitude"]), float(location["longitude"])
-        accuracy = float(location.get("accuracy") or 999)
-        distance = haversine_m(company_lat, company_lng, lat, lng)
-        fake_flag = 1 if accuracy > 150 else 0
-        wifi_ok = (not office_wifi) or (wifi_ssid.strip().lower() == office_wifi.strip().lower())
-        inside = distance <= radius_m
-        if not inside:
-            notify("attendance", "Outside location attendance blocked", f"{user['name']} tried from {distance:.0f}m away", "danger")
-            st.error(f"Attendance blocked. You are {distance:.0f}m away from company radius.")
-            return
-        if not wifi_ok:
-            st.warning("WiFi SSID mismatch. Admin will see warning, but GPS inside radius is accepted.")
-        selfie_path = ""
-        if selfie:
-            selfie_path = str(UPLOAD_DIR / f"selfie_{user['employee_id']}_{uuid.uuid4().hex}.jpg")
-            Path(selfie_path).write_bytes(selfie.getvalue())
-        face_verified, face_msg = face_check(selfie_path, user) if selfie_path else (False, "No selfie")
-        run_sql(
-            """INSERT INTO attendance(employee_id,name,role,branch,date,time,status,latitude,longitude,distance_m,gps_accuracy,wifi_ssid,selfie_path,face_verified,fake_gps_flag,device_id,remarks,created_at)
-               VALUES(:employee_id,:name,:role,:branch,:date,:time,:status,:latitude,:longitude,:distance_m,:gps_accuracy,:wifi_ssid,:selfie_path,:face_verified,:fake_gps_flag,:device_id,:remarks,:created_at)""",
-            dict(employee_id=user["employee_id"], name=user["name"], role=user["role"], branch=user["branch"], date=today_str(), time=datetime.now(APP_TZ).strftime("%I:%M:%S %p"), status=status, latitude=lat, longitude=lng, distance_m=distance, gps_accuracy=accuracy, wifi_ssid=wifi_ssid, selfie_path=selfie_path, face_verified=int(face_verified), fake_gps_flag=fake_flag, device_id=user.get("device_id", ""), remarks=remarks, created_at=now_str()),
-        )
-        if fake_flag:
-            notify("attendance", "Fake GPS suspected", f"{user['name']} GPS accuracy {accuracy}m", "warning")
-        st.success(f"Attendance saved. Distance: {distance:.0f}m. Face: {face_msg}")
-
-# --------------------------- OCR ---------------------------
-def extract_text_from_pdf(path):
-    text_chunks = []
-    try:
-        with pdfplumber.open(path) as pdf:
-            for page in pdf.pages:
-                text_chunks.append(page.extract_text() or "")
+        lat1, lon1, lat2, lon2 = map(float, [lat1, lon1, lat2, lon2])
     except Exception:
-        pass
-    if not "\n".join(text_chunks).strip():
+        return 999999
+
+    radius = 6371000
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lon2 - lon1)
+
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return round(radius * c, 2)
+
+
+def save_uploaded_file(uploaded_file, folder=UPLOAD_DIR):
+    if uploaded_file is None:
+        return ""
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", uploaded_file.name)
+    file_path = folder / f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    return str(file_path)
+
+
+# =========================================================
+# OCR HELPERS
+# =========================================================
+def extract_text_from_pdf(file_path):
+    text = ""
+
+    if pdfplumber is not None:
         try:
-            reader = PdfReader(str(path))
-            for page in reader.pages:
-                text_chunks.append(page.extract_text() or "")
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text() or ""
+                    text += page_text + "\n"
         except Exception:
             pass
-    return "\n".join(text_chunks)
+
+    if not text.strip() and PyPDF2 is not None:
+        try:
+            with open(file_path, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                for page in reader.pages:
+                    text += (page.extract_text() or "") + "\n"
+        except Exception:
+            pass
+
+    return text.strip()
 
 
-def extract_text_from_image(path):
+def extract_text_from_image(file_path):
+    if pytesseract is None:
+        return ""
     try:
-        img = Image.open(path)
-        return pytesseract.image_to_string(img)
-    except Exception as e:
-        return f"OCR_ERROR: {e}"
-
-
-def money_value(text_value):
-    if not text_value:
-        return 0.0
-    cleaned = re.sub(r"[^0-9.]", "", str(text_value))
-    try:
-        return float(cleaned) if cleaned else 0.0
+        image = Image.open(file_path)
+        text = pytesseract.image_to_string(image)
+        return text.strip()
     except Exception:
+        return ""
+
+
+def extract_invoice_text(file_path):
+    ext = Path(file_path).suffix.lower()
+    if ext == ".pdf":
+        text = extract_text_from_pdf(file_path)
+        if text.strip():
+            return text, 85
+        return "", 20
+
+    if ext in [".jpg", ".jpeg", ".png", ".webp"]:
+        text = extract_text_from_image(file_path)
+        confidence = 75 if text.strip() else 20
+        return text, confidence
+
+    return "", 0
+
+
+def money_to_float(value):
+    if value is None:
         return 0.0
+    txt = str(value)
+    txt = txt.replace(",", "")
+    found = re.findall(r"\d+(?:\.\d+)?", txt)
+    if not found:
+        return 0.0
+    return float(found[0])
 
 
-def first_match(patterns, text_data, default=""):
-    for p in patterns:
-        m = re.search(p, text_data, re.IGNORECASE | re.MULTILINE)
-        if m:
-            return m.group(1).strip()
+def regex_find(patterns, text, default=""):
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.I | re.M)
+        if match:
+            return match.group(1).strip()
     return default
 
 
-def parse_invoice_text(text_data):
-    clean = re.sub(r"[ \t]+", " ", text_data or "")
-    job = first_match([
+def parse_invoice_fields(text, confidence):
+    clean = text.replace("\n", " ")
+    job_card = regex_find([
         r"Job\s*Card\s*(?:No|Number)?\s*[:\-]?\s*([A-Z0-9\-\/]+)",
         r"JC\s*(?:No)?\s*[:\-]?\s*([A-Z0-9\-\/]+)",
-        r"(\d{5,}-\d{2}-[A-Z]{2,4}-\d{4}-\d{3,})",
+        r"(\d{5,}-\d{2}-[A-Z]+-\d{4}-\d+)"
     ], clean)
-    vehicle = first_match([
+
+    vehicle_no = regex_find([
         r"Vehicle\s*(?:Reg|Registration)?\s*(?:No|Number)?\s*[:\-]?\s*([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{3,4})",
         r"Reg\s*(?:No|Number)?\s*[:\-]?\s*([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{3,4})",
-        r"\b([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{3,4})\b",
-    ], clean).replace(" ", "")
-    invoice_date = first_match([
-        r"Invoice\s*Date\s*[:\-]?\s*(\d{1,2}[\-/]\d{1,2}[\-/]\d{2,4})",
-        r"Date\s*[:\-]?\s*(\d{1,2}[\-/]\d{1,2}[\-/]\d{2,4})",
+        r"\b([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{3,4})\b"
     ], clean)
-    spare_amount = money_value(first_match([
-        r"Total\s*Spare\s*(?:Amount)?\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([0-9,]+\.?[0-9]*)",
-        r"Parts\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([0-9,]+\.?[0-9]*)",
-    ], clean))
-    labour_amount = money_value(first_match([
-        r"Total\s*Labou?r\s*(?:Amount)?\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([0-9,]+\.?[0-9]*)",
-        r"Labou?r\s*Charges?\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([0-9,]+\.?[0-9]*)",
-    ], clean))
-    gst = money_value(first_match([
-        r"GST\s*(?:Amount)?\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([0-9,]+\.?[0-9]*)",
-        r"CGST\s*\+\s*SGST\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([0-9,]+\.?[0-9]*)",
-    ], clean))
-    total = money_value(first_match([
-        r"Total\s*Invoice\s*(?:Value|Amount)?\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([0-9,]+\.?[0-9]*)",
-        r"Grand\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([0-9,]+\.?[0-9]*)",
-        r"Net\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([0-9,]+\.?[0-9]*)",
-    ], clean))
-    customer = first_match([r"Customer\s*Name\s*[:\-]?\s*([A-Za-z .]{3,60})", r"Name\s*[:\-]?\s*([A-Za-z .]{3,60})"], clean)
-    model = first_match([r"Vehicle\s*Model\s*[:\-]?\s*([A-Za-z0-9 +\-]{3,50})", r"Model\s*[:\-]?\s*([A-Za-z0-9 +\-]{3,50})"], clean)
-    mobile = first_match([r"Mobile\s*(?:No|Number)?\s*[:\-]?\s*(\d{10})", r"\b([6-9]\d{9})\b"], clean)
-    oil = "Yes" if re.search(r"oil\s*(change|filter|engine oil)|engine\s*oil", clean, re.I) else "No"
-    parts_count = len(re.findall(r"\b(part|spare|qty|hsn)\b", clean, re.I))
-    fields = {
+
+    invoice_date = regex_find([
+        r"Invoice\s*Date\s*[:\-]?\s*(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})",
+        r"Date\s*[:\-]?\s*(\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4})"
+    ], clean)
+
+    customer = regex_find([
+        r"Customer\s*Name\s*[:\-]?\s*([A-Za-z .]{3,40})",
+        r"Name\s*[:\-]?\s*([A-Za-z .]{3,40})"
+    ], clean)
+
+    model = regex_find([
+        r"Vehicle\s*Model\s*[:\-]?\s*([A-Za-z0-9 +.-]{3,40})",
+        r"Model\s*[:\-]?\s*([A-Za-z0-9 +.-]{3,40})"
+    ], clean)
+
+    mobile = regex_find([
+        r"Mobile\s*(?:No|Number)?\s*[:\-]?\s*([6-9]\d{9})",
+        r"Phone\s*[:\-]?\s*([6-9]\d{9})",
+        r"\b([6-9]\d{9})\b"
+    ], clean)
+
+    spare_amount = regex_find([
+        r"Total\s*Spare\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Spare\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+    ], clean)
+
+    labour_amount = regex_find([
+        r"Total\s*Labou?r\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Labou?r\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+    ], clean)
+
+    gst_amount = regex_find([
+        r"GST\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"GST\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+    ], clean)
+
+    invoice_value = regex_find([
+        r"Total\s*Invoice\s*Value\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Grand\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Net\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+    ], clean)
+
+    oil_status = "Yes" if re.search(r"\boil\b|engine\s*oil", clean, flags=re.I) else "No"
+
+    spare_count = len(re.findall(r"\b(part|spare|filter|oil|plug|shoe|cable|chain)\b", clean, flags=re.I))
+    if spare_count == 0:
+        spare_count = ""
+
+    return {
         "invoice_date": invoice_date,
-        "job_card_no": job,
-        "job_card_last8": job[-8:] if job else "",
-        "vehicle_reg_no": vehicle,
-        "spare_parts_count": max(parts_count, 0),
-        "total_spare_amount": spare_amount,
-        "oil_change_status": oil,
-        "total_labour_amount": labour_amount,
-        "total_invoice_value": total if total else spare_amount + labour_amount + gst,
-        "gst_amount": gst,
+        "job_card_no": job_card,
+        "job_card_last8": job_card[-8:] if job_card else "",
+        "vehicle_reg_no": vehicle_no.replace(" ", "").upper() if vehicle_no else "",
+        "spare_count": spare_count,
+        "total_spare_amount": money_to_float(spare_amount),
+        "oil_change_status": oil_status,
+        "total_labour_amount": money_to_float(labour_amount),
+        "gst_amount": money_to_float(gst_amount),
+        "total_invoice_value": money_to_float(invoice_value),
         "customer_name": customer,
         "vehicle_model": model,
         "mobile_number": mobile,
+        "ocr_confidence": confidence,
+        "raw_text": text[:5000]
     }
-    present = sum(1 for v in fields.values() if str(v).strip() not in ["", "0", "0.0"])
-    confidence = round((present / len(fields)) * 100, 2)
-    return fields, confidence
 
 
-def upload_invoice_page():
-    user = current_user()
-    st.header("📄 PDF Invoice OCR & Auto Extraction")
-    file = st.file_uploader("Upload PDF / scanned image / camera photo", type=["pdf", "png", "jpg", "jpeg"])
-    if file:
-        saved_path = UPLOAD_DIR / f"{uuid.uuid4().hex}_{file.name}"
-        saved_path.write_bytes(file.getvalue())
-        ext = saved_path.suffix.lower()
-        if ext == ".pdf":
-            raw_text = extract_text_from_pdf(saved_path)
-        else:
-            raw_text = extract_text_from_image(saved_path)
-        fields, confidence = parse_invoice_text(raw_text)
-        st.session_state["ocr_preview"] = {"fields": fields, "confidence": confidence, "raw_text": raw_text, "source_file": str(saved_path)}
+def duplicate_check(job_card, vehicle_no, invoice_value):
+    inv = read_sheet("invoices")
+    duplicate_reasons = []
 
-    if "ocr_preview" in st.session_state:
-        data = st.session_state["ocr_preview"]["fields"]
-        conf = st.session_state["ocr_preview"]["confidence"]
-        st.metric("OCR Confidence", f"{conf}%")
-        if conf < 60:
-            st.warning("Low confidence. Please verify all values before save.")
-        with st.expander("Raw OCR Text"):
-            st.text_area("Text", st.session_state["ocr_preview"]["raw_text"], height=220)
-        st.subheader("Editable OCR Preview")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            invoice_date = st.text_input("Invoice Date", data.get("invoice_date", ""))
-            job_card_no = st.text_input("Job Card Number", data.get("job_card_no", ""))
-            vehicle_reg_no = st.text_input("Vehicle Reg No", data.get("vehicle_reg_no", ""))
-            customer_name = st.text_input("Customer Name", data.get("customer_name", ""))
-        with c2:
-            vehicle_model = st.text_input("Vehicle Model", data.get("vehicle_model", ""))
-            mobile_number = st.text_input("Mobile Number", data.get("mobile_number", ""))
-            spare_parts_count = st.number_input("No. of Spare Parts", min_value=0, value=int(data.get("spare_parts_count", 0) or 0))
-            oil_change_status = st.selectbox("Oil Change Status", ["Yes", "No"], index=0 if data.get("oil_change_status") == "Yes" else 1)
-        with c3:
-            total_spare_amount = st.number_input("Total Spare Amount", min_value=0.0, value=float(data.get("total_spare_amount", 0) or 0))
-            total_labour_amount = st.number_input("Total Labour Amount", min_value=0.0, value=float(data.get("total_labour_amount", 0) or 0))
-            gst_amount = st.number_input("GST Amount", min_value=0.0, value=float(data.get("gst_amount", 0) or 0))
-            total_invoice_value = st.number_input("Total Invoice Value", min_value=0.0, value=float(data.get("total_invoice_value", 0) or 0))
+    if job_card and (inv["job_card_no"].astype(str).str.upper() == str(job_card).upper()).any():
+        duplicate_reasons.append("Duplicate Job Card")
 
-        missing = [name for name, val in {"Invoice Date": invoice_date, "Job Card": job_card_no, "Vehicle Reg No": vehicle_reg_no, "Total": total_invoice_value}.items() if not str(val).strip() or float(val) == 0 if isinstance(val, float)]
-        if missing:
-            st.warning("Missing important fields: " + ", ".join(missing))
-        dup = run_sql(
-            "SELECT invoice_id, job_card_no, vehicle_reg_no FROM invoices WHERE job_card_no=:j OR vehicle_reg_no=:v",
-            {"j": job_card_no, "v": vehicle_reg_no},
-            fetch=True,
-        )
-        duplicate_flag = 1 if dup else 0
-        if duplicate_flag:
-            st.error("Possible duplicate invoice/job card/vehicle upload detected.")
-        if st.button("Save Invoice Data"):
-            invoice_id = f"INV-{datetime.now(APP_TZ).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
-            run_sql(
-                """INSERT INTO invoices(invoice_id,upload_date,employee_id,branch,invoice_date,job_card_no,job_card_last8,vehicle_reg_no,customer_name,vehicle_model,mobile_number,spare_parts_count,total_spare_amount,oil_change_status,total_labour_amount,gst_amount,total_invoice_value,ocr_confidence,duplicate_flag,source_file,raw_text,created_at)
-                   VALUES(:invoice_id,:upload_date,:employee_id,:branch,:invoice_date,:job_card_no,:job_card_last8,:vehicle_reg_no,:customer_name,:vehicle_model,:mobile_number,:spare_parts_count,:total_spare_amount,:oil_change_status,:total_labour_amount,:gst_amount,:total_invoice_value,:ocr_confidence,:duplicate_flag,:source_file,:raw_text,:created_at)""",
-                dict(invoice_id=invoice_id, upload_date=today_str(), employee_id=user["employee_id"], branch=user["branch"], invoice_date=invoice_date, job_card_no=job_card_no, job_card_last8=job_card_no[-8:] if job_card_no else "", vehicle_reg_no=vehicle_reg_no, customer_name=customer_name, vehicle_model=vehicle_model, mobile_number=mobile_number, spare_parts_count=spare_parts_count, total_spare_amount=total_spare_amount, oil_change_status=oil_change_status, total_labour_amount=total_labour_amount, gst_amount=gst_amount, total_invoice_value=total_invoice_value, ocr_confidence=conf, duplicate_flag=duplicate_flag, source_file=st.session_state["ocr_preview"]["source_file"], raw_text=st.session_state["ocr_preview"]["raw_text"][:8000], created_at=now_str()),
-            )
-            run_sql(
-                "INSERT INTO customers(vehicle_reg_no,customer_name,mobile_number,vehicle_model,service_due_date,updated_at) VALUES(:v,:c,:m,:model,:due,:u)",
-                {"v": vehicle_reg_no, "c": customer_name, "m": mobile_number, "model": vehicle_model, "due": (date.today() + timedelta(days=90)).isoformat(), "u": now_str()},
-            )
-            notify("invoice", "New invoice uploaded", f"{invoice_id} by {user['name']}", "success")
-            st.success(f"Invoice saved: {invoice_id}")
-            del st.session_state["ocr_preview"]
+    if vehicle_no and invoice_value:
+        same_vehicle = inv[
+            (inv["vehicle_reg_no"].astype(str).str.upper() == str(vehicle_no).upper()) &
+            (pd.to_numeric(inv["total_invoice_value"], errors="coerce").fillna(0) == float(invoice_value))
+        ]
+        if not same_vehicle.empty:
+            duplicate_reasons.append("Same Vehicle + Same Amount")
 
-# --------------------------- REPORTS ---------------------------
-def create_report_pdf(df, title, filename):
-    path = BASE_DIR / filename
-    doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=20)
+    return ", ".join(duplicate_reasons) if duplicate_reasons else "No Duplicate"
+
+
+# =========================================================
+# PDF GENERATION
+# =========================================================
+def generate_table_pdf(df, title, filename):
+    pdf_path = PDF_DIR / filename
+    doc = SimpleDocTemplate(str(pdf_path), pagesize=A4)
     styles = getSampleStyleSheet()
-    elements = [Paragraph(f"<b>{title}</b>", styles["Title"]), Spacer(1, 14)]
+    elements = [Paragraph(f"<b>{title}</b>", styles["Title"]), Spacer(1, 15)]
+
     if df.empty:
-        elements.append(Paragraph("No records", styles["BodyText"]))
+        elements.append(Paragraph("No records found", styles["BodyText"]))
     else:
-        show = df.astype(str).head(35)
-        data = [show.columns.tolist()] + show.values.tolist()
-        table = Table(data, repeatRows=1)
+        temp = df.copy()
+        temp = temp.astype(str)
+        table_data = [temp.columns.tolist()] + temp.values.tolist()
+        table = Table(table_data, repeatRows=1)
         table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.black),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("FONTSIZE", (0, 0), (-1, -1), 6),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ]))
         elements.append(table)
+
     doc.build(elements)
-    return path
+    return str(pdf_path)
 
 
-def reports_page():
-    st.header("📊 Reports & Smart Search")
-    invoices = read_table("invoices")
-    if invoices.empty:
-        st.info("No invoices yet")
-        return
-    q = st.text_input("Search vehicle / job card / employee / customer / mobile")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        branch = st.selectbox("Branch", ["All"] + sorted(invoices["branch"].dropna().unique().tolist()))
-    with c2:
-        employee = st.selectbox("Employee", ["All"] + sorted(invoices["employee_id"].dropna().unique().tolist()))
-    with c3:
-        min_amount = st.number_input("Min Amount", value=0.0)
-    with c4:
-        max_amount = st.number_input("Max Amount", value=float(invoices["total_invoice_value"].max() or 999999), min_value=0.0)
+def create_qr_image(data_text):
+    qr = qrcode.QRCode(box_size=4, border=2)
+    qr.add_data(data_text)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    qr_path = PDF_DIR / f"qr_{uuid.uuid4().hex[:8]}.png"
+    img.save(qr_path)
+    return str(qr_path)
 
-    df = invoices.copy()
-    if q:
-        mask = pd.Series(False, index=df.index)
-        for col in ["vehicle_reg_no", "job_card_no", "employee_id", "customer_name", "mobile_number", "invoice_date"]:
-            mask = mask | df[col].astype(str).str.contains(q, case=False, na=False)
-        df = df[mask]
-    if branch != "All":
-        df = df[df["branch"] == branch]
-    if employee != "All":
-        df = df[df["employee_id"] == employee]
-    df = df[(pd.to_numeric(df["total_invoice_value"], errors="coerce").fillna(0) >= min_amount) & (pd.to_numeric(df["total_invoice_value"], errors="coerce").fillna(0) <= max_amount)]
-    st.dataframe(df, use_container_width=True)
 
-    report_cols = ["upload_date", "employee_id", "job_card_no", "vehicle_reg_no", "total_spare_amount", "total_labour_amount", "gst_amount", "total_invoice_value", "oil_change_status"]
-    export_df = df[[c for c in report_cols if c in df.columns]]
-    csv = export_df.to_csv(index=False).encode("utf-8")
-    st.download_button("Download CSV", csv, "invoice_report.csv", "text/csv")
-    excel_buf = io.BytesIO()
-    with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
-        export_df.to_excel(writer, index=False, sheet_name="Invoice Report")
-    st.download_button("Download Excel", excel_buf.getvalue(), "invoice_report.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    pdf_path = create_report_pdf(export_df, "SELVA MOTORS - INVOICE REPORT", "invoice_report.pdf")
-    st.download_button("Download PDF", pdf_path.read_bytes(), "invoice_report.pdf", "application/pdf")
+def generate_hero_invoice_pdf(customer, mobile, vehicle, model, spare_rows, labour_rows, discount):
+    invoice_id = "HERO-" + datetime.now().strftime("%Y%m%d%H%M%S")
+    pdf_path = PDF_DIR / f"{invoice_id}.pdf"
 
-# --------------------------- ANALYTICS ---------------------------
-def dashboard_page():
-    st.header("📈 Real-Time Dashboard")
-    invoices = read_table("invoices")
-    attendance = read_table("attendance")
-    today = today_str()
-    today_inv = invoices[invoices.get("upload_date", pd.Series(dtype=str)).astype(str) == today] if not invoices.empty else pd.DataFrame()
-    month_prefix = datetime.now(APP_TZ).strftime("%Y-%m")
-    month_inv = invoices[invoices.get("upload_date", pd.Series(dtype=str)).astype(str).str.startswith(month_prefix)] if not invoices.empty else pd.DataFrame()
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("Today Revenue", f"₹{pd.to_numeric(today_inv.get('total_invoice_value', pd.Series(dtype=float)), errors='coerce').sum():,.0f}")
-    c2.metric("Monthly Revenue", f"₹{pd.to_numeric(month_inv.get('total_invoice_value', pd.Series(dtype=float)), errors='coerce').sum():,.0f}")
-    c3.metric("Invoice Count", len(today_inv))
-    c4.metric("Oil Change", int((today_inv.get("oil_change_status", pd.Series(dtype=str)) == "Yes").sum()) if not today_inv.empty else 0)
-    c5.metric("Labour Income", f"₹{pd.to_numeric(today_inv.get('total_labour_amount', pd.Series(dtype=float)), errors='coerce').sum():,.0f}")
-    today_att = attendance[attendance.get("date", pd.Series(dtype=str)).astype(str) == today] if not attendance.empty else pd.DataFrame()
-    c6.metric("Attendance", len(today_att))
+    spare_total = sum(float(r["amount"]) for r in spare_rows)
+    labour_total = sum(float(r["amount"]) for r in labour_rows)
+    taxable = spare_total + labour_total
+    gst_amount = round(taxable * 0.18, 2)
+    grand_total = round(taxable + gst_amount - float(discount), 2)
 
-    if not invoices.empty:
-        df = invoices.copy()
-        df["total_spare_amount"] = pd.to_numeric(df["total_spare_amount"], errors="coerce").fillna(0)
-        df["total_labour_amount"] = pd.to_numeric(df["total_labour_amount"], errors="coerce").fillna(0)
-        chart_data = pd.DataFrame({"Type": ["Spare", "Labour"], "Amount": [df["total_spare_amount"].sum(), df["total_labour_amount"].sum()]})
-        st.plotly_chart(px.pie(chart_data, names="Type", values="Amount", title="Spare vs Labour"), use_container_width=True)
-        emp = df.groupby("employee_id", as_index=False).agg(uploads=("id", "count"), revenue=("total_invoice_value", "sum")).sort_values("uploads", ascending=False)
-        st.plotly_chart(px.bar(emp, x="employee_id", y="uploads", title="Top Employee Ranking"), use_container_width=True)
-        veh = df.groupby("vehicle_model", as_index=False).agg(count=("id", "count")).sort_values("count", ascending=False).head(10)
-        st.plotly_chart(px.bar(veh, x="vehicle_model", y="count", title="Most Repaired Vehicles"), use_container_width=True)
+    qr_text = json.dumps({
+        "invoice_id": invoice_id,
+        "customer": customer,
+        "vehicle": vehicle,
+        "grand_total": grand_total
+    })
+    qr_path = create_qr_image(qr_text)
 
-# --------------------------- MANUAL INVOICE ---------------------------
-def generate_invoice_pdf(invoice):
-    invoice_id = invoice["invoice_id"]
-    path = INVOICE_DIR / f"{invoice_id}.pdf"
-    qr_data = json.dumps({"invoice_id": invoice_id, "vehicle": invoice["vehicle_reg_no"], "customer": invoice["customer_name"], "total": invoice["grand_total"]})
-    qr_img = qrcode.make(qr_data)
-    qr_path = INVOICE_DIR / f"{invoice_id}_qr.png"
-    qr_img.save(qr_path)
-    c = canvas.Canvas(str(path), pagesize=A4)
-    width, height = A4
+    c = canvas.Canvas(str(pdf_path), pagesize=A4)
+    w, h = A4
+
     c.setFont("Helvetica-Bold", 18)
-    c.drawString(35, height - 45, "HERO MOTOCORP - SERVICE INVOICE")
-    c.setFont("Helvetica", 9)
-    c.drawString(35, height - 62, "Selva Motors | Authorized Service Style Invoice")
-    c.drawImage(str(qr_path), width - 110, height - 110, 75, 75)
-    y = height - 120
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(35, y, f"Invoice ID: {invoice_id}")
-    c.drawString(300, y, f"Date: {today_str()}")
-    y -= 20
+    c.drawString(40, h - 45, "HERO MOTOCORP SERVICE INVOICE")
     c.setFont("Helvetica", 10)
-    details = [
-        f"Customer: {invoice['customer_name']}", f"Mobile: {invoice['mobile_number']}",
-        f"Vehicle No: {invoice['vehicle_reg_no']}", f"Model: {invoice['vehicle_model']}",
-        f"Job Card: {invoice['job_card_no']}",
-    ]
-    for item in details:
-        c.drawString(35, y, item)
-        y -= 16
-    y -= 8
+    c.drawString(40, h - 65, "Selva Motors | Authorized Service Style Invoice")
+    c.line(40, h - 78, w - 40, h - 78)
+
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(35, y, "Spare Parts / Labour")
-    y -= 18
-    c.line(35, y, width - 35, y)
-    y -= 16
+    c.drawString(40, h - 105, f"Invoice ID: {invoice_id}")
+    c.drawString(350, h - 105, f"Date: {today_str()}")
+
+    c.setFont("Helvetica", 10)
+    c.drawString(40, h - 130, f"Customer Name: {customer}")
+    c.drawString(40, h - 148, f"Mobile: {mobile}")
+    c.drawString(350, h - 130, f"Vehicle No: {vehicle}")
+    c.drawString(350, h - 148, f"Vehicle Model: {model}")
+
+    y = h - 190
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(40, y, "Spare Parts")
+    y -= 20
     c.setFont("Helvetica-Bold", 9)
-    c.drawString(40, y, "Item")
-    c.drawString(300, y, "Qty")
-    c.drawString(360, y, "Rate")
-    c.drawString(450, y, "Amount")
-    y -= 12
+    c.drawString(45, y, "S.No")
+    c.drawString(90, y, "Spare Name")
+    c.drawString(280, y, "Qty")
+    c.drawString(340, y, "Rate")
+    c.drawString(430, y, "Amount")
+    c.line(40, y - 5, w - 40, y - 5)
+
     c.setFont("Helvetica", 9)
-    for row in invoice["items"]:
-        c.drawString(40, y, row["name"][:35])
-        c.drawRightString(320, y, str(row["qty"]))
-        c.drawRightString(410, y, f"{row['rate']:.2f}")
-        c.drawRightString(510, y, f"{row['amount']:.2f}")
-        y -= 15
+    y -= 22
+    for i, r in enumerate(spare_rows, start=1):
+        c.drawString(45, y, str(i))
+        c.drawString(90, y, str(r["name"])[:25])
+        c.drawString(280, y, str(r["qty"]))
+        c.drawString(340, y, f"Rs.{float(r['rate']):.2f}")
+        c.drawString(430, y, f"Rs.{float(r['amount']):.2f}")
+        y -= 18
+
     y -= 10
-    c.line(350, y, 520, y)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(40, y, "Labour Charges")
+    y -= 20
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(45, y, "S.No")
+    c.drawString(90, y, "Labour Work")
+    c.drawString(430, y, "Amount")
+    c.line(40, y - 5, w - 40, y - 5)
+
+    c.setFont("Helvetica", 9)
+    y -= 22
+    for i, r in enumerate(labour_rows, start=1):
+        c.drawString(45, y, str(i))
+        c.drawString(90, y, str(r["name"])[:35])
+        c.drawString(430, y, f"Rs.{float(r['amount']):.2f}")
+        y -= 18
+
+    y -= 15
+    c.line(320, y, w - 40, y)
     y -= 18
     c.setFont("Helvetica-Bold", 10)
-    for label, value in [("Sub Total", invoice["subtotal"]), ("GST", invoice["gst"]), ("Discount", -invoice["discount"]), ("Grand Total", invoice["grand_total"] )]:
-        c.drawString(360, y, label)
-        c.drawRightString(515, y, f"₹{value:.2f}")
-        y -= 18
-    c.setFont("Helvetica", 9)
-    c.drawString(35, 90, "Digital Signature: Selva Motors")
-    c.line(35, 75, 180, 75)
-    c.drawString(360, 90, "Customer Signature")
-    c.line(360, 75, 520, 75)
+    c.drawString(340, y, f"Spare Total: Rs.{spare_total:.2f}")
+    y -= 16
+    c.drawString(340, y, f"Labour Total: Rs.{labour_total:.2f}")
+    y -= 16
+    c.drawString(340, y, f"GST 18%: Rs.{gst_amount:.2f}")
+    y -= 16
+    c.drawString(340, y, f"Discount: Rs.{float(discount):.2f}")
+    y -= 20
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(340, y, f"Grand Total: Rs.{grand_total:.2f}")
+
+    c.drawImage(qr_path, 50, 70, width=80, height=80)
+    c.setFont("Helvetica", 8)
+    c.drawString(45, 55, "Scan QR to verify invoice")
+    c.drawString(350, 90, "Digital Signature")
+    c.line(350, 75, 520, 75)
+
     c.showPage()
     c.save()
-    return path
+
+    append_row("manual_invoices", {
+        "manual_invoice_id": invoice_id,
+        "date": today_str(),
+        "customer_name": customer,
+        "mobile_number": mobile,
+        "vehicle_reg_no": vehicle,
+        "vehicle_model": model,
+        "spare_total": spare_total,
+        "labour_total": labour_total,
+        "gst_amount": gst_amount,
+        "discount": discount,
+        "grand_total": grand_total,
+        "pdf_path": str(pdf_path),
+        "created_at": now_dt()
+    })
+
+    return str(pdf_path), grand_total
 
 
-def manual_invoice_page():
-    st.header("🧾 Manual Hero-Style Invoice Generator")
+# =========================================================
+# SIDEBAR LOGIN
+# =========================================================
+def login_page():
+    st.markdown('<div class="hero-title">🏍️ SELVA MOTORS SMART ERP</div>', unsafe_allow_html=True)
+    st.caption("Excel storage version | No MySQL | No SQLAlchemy")
+
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        st.subheader("🔐 Login")
+        employee_id = st.text_input("User ID")
+        password = st.text_input("Password", type="password")
+
+        if st.button("Login", use_container_width=True):
+            user = login_user(employee_id, password)
+            if user:
+                st.session_state["logged_in"] = True
+                st.session_state["employee_id"] = user["employee_id"]
+                st.session_state["employee_name"] = user["name"]
+                st.session_state["role"] = user["role"]
+                st.session_state["branch"] = user["branch"]
+                st.success("Login success")
+                st.rerun()
+            else:
+                st.error("Invalid login")
+
+    with c2:
+        st.info("""
+        Demo Login:
+
+        Super Admin: superadmin / admin123  
+        Employee: mohan / mohan  
+        Employee: ajay / ajay  
+        Branch Admin: prathisha / prathisha  
+        Manager: manager / manager123
+        """)
+
+
+def sidebar_menu():
+    st.sidebar.title("🏍️ Selva ERP")
+    st.sidebar.success(f"{st.session_state.get('employee_name')} | {st.session_state.get('role')}")
+
+    if st.sidebar.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
+
+    role = st.session_state.get("role")
+
+    pages = ["Dashboard", "Attendance", "Upload Invoice", "Reports", "Search", "Customer History", "Manual Invoice Generator"]
+
+    if role in ["Super Admin", "Branch Admin", "Manager"]:
+        pages += ["Analytics", "Inventory", "Admin Panel", "Notifications", "Backup"]
+
+    return st.sidebar.radio("Menu", pages)
+
+
+# =========================================================
+# DASHBOARD
+# =========================================================
+def show_metric(title, value, caption=""):
+    st.markdown(f"""
+    <div class="metric-card">
+        <p>{title}</p>
+        <h2>{value}</h2>
+        <p>{caption}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def page_dashboard():
+    st.markdown('<div class="hero-title">📊 Dashboard</div>', unsafe_allow_html=True)
+
+    inv = read_sheet("invoices")
+    att = read_sheet("attendance")
+    inv["total_invoice_value"] = pd.to_numeric(inv["total_invoice_value"], errors="coerce").fillna(0)
+    inv["total_labour_amount"] = pd.to_numeric(inv["total_labour_amount"], errors="coerce").fillna(0)
+
+    today = today_str()
+    today_inv = inv[inv["upload_date"].astype(str) == today]
+    today_att = att[att["date"].astype(str) == today]
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        show_metric("Today Revenue", f"₹{today_inv['total_invoice_value'].sum():,.0f}", "Invoice value")
+    with c2:
+        show_metric("Monthly Revenue", f"₹{inv['total_invoice_value'].sum():,.0f}", "All saved invoices")
+    with c3:
+        show_metric("Today Uploads", len(today_inv), "Invoice count")
+    with c4:
+        show_metric("Attendance Today", len(today_att), "Staff count")
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Recent Invoices")
+        if inv.empty:
+            st.info("No invoices")
+        else:
+            st.dataframe(inv.tail(10), use_container_width=True)
+
+    with col2:
+        st.subheader("Spare vs Labour")
+        spare = pd.to_numeric(inv["total_spare_amount"], errors="coerce").fillna(0).sum()
+        labour = pd.to_numeric(inv["total_labour_amount"], errors="coerce").fillna(0).sum()
+        chart_df = pd.DataFrame({"Type": ["Spare", "Labour"], "Amount": [spare, labour]})
+        fig = px.pie(chart_df, names="Type", values="Amount", hole=0.35)
+        st.plotly_chart(fig, use_container_width=True)
+
+
+# =========================================================
+# ATTENDANCE
+# =========================================================
+def page_attendance():
+    st.markdown('<div class="hero-title">📍 Smart GPS Attendance</div>', unsafe_allow_html=True)
+
+    st.info("Company GPS radius check + selfie + WiFi field. Streamlit Cloud la browser permission allow pannunga.")
+
+    emp_id = st.session_state["employee_id"]
+    emp_name = st.session_state["employee_name"]
+    role = st.session_state["role"]
+    branch = st.session_state["branch"]
+    today = today_str()
+
+    att = read_sheet("attendance")
+    already = att[
+        (att["date"].astype(str) == today) &
+        (att["employee_id"].astype(str) == emp_id)
+    ]
+
+    if not already.empty:
+        st.warning("Today attendance already marked.")
+        st.dataframe(already, use_container_width=True)
+        return
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Location")
+        latitude = st.text_input("Latitude", value="")
+        longitude = st.text_input("Longitude", value="")
+        gps_accuracy = st.number_input("GPS Accuracy Meter", min_value=0.0, value=20.0)
+
+        if get_geolocation is not None:
+            if st.button("📍 Get Current GPS"):
+                loc = get_geolocation()
+                st.write(loc)
+                st.info("GPS values display aana, copy panni Latitude/Longitude fields la paste pannunga.")
+        else:
+            st.caption("streamlit-js-eval install pannina GPS button work aagum.")
+
+        wifi_ssid = st.text_input("Office WiFi SSID", value="")
+        status = st.selectbox("Attendance Status", ["Present", "Half Day Leave"])
+
+    with col2:
+        st.subheader("Selfie")
+        selfie = st.camera_input("Capture Selfie")
+
+    distance = ""
+    allow = False
+
+    if latitude and longitude:
+        distance = haversine_distance(latitude, longitude, COMPANY_LAT, COMPANY_LON)
+        if distance <= ALLOWED_RADIUS_METERS:
+            allow = True
+            st.success(f"Inside location radius ✅ Distance: {distance} meter")
+        else:
+            st.error(f"Outside company radius ❌ Distance: {distance} meter")
+
+    if gps_accuracy > 100:
+        st.warning("Fake GPS / low accuracy warning: GPS accuracy is high.")
+
+    if wifi_ssid and wifi_ssid != OFFICE_WIFI:
+        st.warning("Office WiFi mismatch warning.")
+
+    if st.button("📥 Mark Attendance", use_container_width=True):
+        if not latitude or not longitude:
+            st.error("Latitude and Longitude required.")
+            return
+        if not allow:
+            add_notification("Attendance Outside Location", f"{emp_name} tried attendance outside radius.")
+            st.error("Attendance blocked. You are outside company location.")
+            return
+
+        selfie_path = ""
+        if selfie:
+            selfie_path = save_uploaded_file(selfie, UPLOAD_DIR)
+
+        face_verified = "Not Enabled"
+
+        append_row("attendance", {
+            "attendance_id": str(uuid.uuid4())[:8],
+            "date": today,
+            "time": time_str(),
+            "employee_id": emp_id,
+            "employee_name": emp_name,
+            "role": role,
+            "branch": branch,
+            "status": status,
+            "latitude": latitude,
+            "longitude": longitude,
+            "distance_m": distance,
+            "wifi_ssid": wifi_ssid,
+            "gps_accuracy": gps_accuracy,
+            "selfie_path": selfie_path,
+            "face_verified": face_verified,
+            "remarks": "Excel saved",
+            "created_at": now_dt()
+        })
+        st.success("Attendance saved in Excel.")
+        st.rerun()
+
+
+# =========================================================
+# UPLOAD INVOICE
+# =========================================================
+def page_upload_invoice():
+    st.markdown('<div class="hero-title">📄 AI Invoice OCR Upload</div>', unsafe_allow_html=True)
+
+    uploaded = st.file_uploader("Upload PDF / Image / Camera Photo", type=["pdf", "png", "jpg", "jpeg", "webp"])
+    emp_id = st.session_state["employee_id"]
+    emp_name = st.session_state["employee_name"]
+    branch = st.session_state["branch"]
+
+    st.caption("Supported: PDF, scanned image, camera photo, multi-page text PDF. Scanned PDF OCR needs Tesseract setup.")
+
+    sample = {
+        "invoice_date": "07-01-2026",
+        "job_card_no": "67381-03-RJC-1225-1094",
+        "job_card_last8": "1225-1094",
+        "vehicle_reg_no": "TN51AT6661",
+        "spare_count": 5,
+        "total_spare_amount": 5904,
+        "oil_change_status": "Yes",
+        "total_labour_amount": 1906.88,
+        "gst_amount": 0,
+        "total_invoice_value": 7811,
+        "customer_name": "",
+        "vehicle_model": "",
+        "mobile_number": "",
+        "ocr_confidence": 90,
+        "raw_text": "Sample invoice reference"
+    }
+
+    if st.button("Use Sample Data"):
+        st.session_state["ocr_data"] = sample
+        st.session_state["source_file"] = "sample"
+        st.rerun()
+
+    if uploaded:
+        file_path = save_uploaded_file(uploaded)
+        text, confidence = extract_invoice_text(file_path)
+        data = parse_invoice_fields(text, confidence)
+        st.session_state["ocr_data"] = data
+        st.session_state["source_file"] = file_path
+        add_notification("New Invoice Upload", f"{emp_name} uploaded invoice file.")
+        st.success("OCR extraction completed. Please verify preview below.")
+
+    if "ocr_data" not in st.session_state:
+        return
+
+    data = st.session_state["ocr_data"]
+    st.subheader("Editable OCR Preview")
+
     c1, c2, c3 = st.columns(3)
     with c1:
-        customer_name = st.text_input("Customer Name")
-        mobile_number = st.text_input("Mobile Number")
+        invoice_date = st.text_input("Invoice Date", value=str(data.get("invoice_date", "")))
+        job_card_no = st.text_input("Job Card Number", value=str(data.get("job_card_no", "")))
+        vehicle_reg_no = st.text_input("Vehicle Registration Number", value=str(data.get("vehicle_reg_no", "")))
+        spare_count = st.number_input("Number of Spare Parts", min_value=0, value=int(data.get("spare_count") or 0))
     with c2:
-        vehicle_reg_no = st.text_input("Vehicle Reg No", "TN51AT6661")
-        vehicle_model = st.text_input("Vehicle Model", "Splendor Plus")
+        spare_amount = st.number_input("Total Spare Amount", min_value=0.0, value=float(data.get("total_spare_amount") or 0.0))
+        oil_status = st.selectbox("Oil Change Status", ["Yes", "No"], index=0 if data.get("oil_change_status") == "Yes" else 1)
+        labour_amount = st.number_input("Total Labour Amount", min_value=0.0, value=float(data.get("total_labour_amount") or 0.0))
+        gst_amount = st.number_input("GST Amount", min_value=0.0, value=float(data.get("gst_amount") or 0.0))
     with c3:
-        job_card_no = st.text_input("Job Card No", "67381-03-RJC-1225-1094")
-        discount = st.number_input("Discount", min_value=0.0, value=0.0)
-    gst_percent = float(get_setting("gst_percent", "18"))
-    st.subheader("Items")
-    items = []
-    item_count = st.number_input("Number of rows", min_value=1, max_value=20, value=3)
-    for i in range(int(item_count)):
-        a, b, c = st.columns([3, 1, 1])
-        name = a.text_input(f"Item {i+1}", key=f"item_name_{i}", value="Engine Oil" if i == 0 else "Labour" if i == 1 else "")
-        qty = b.number_input("Qty", min_value=0.0, value=1.0, key=f"qty_{i}")
-        rate = c.number_input("Rate", min_value=0.0, value=0.0, key=f"rate_{i}")
-        if name:
-            items.append({"name": name, "qty": qty, "rate": rate, "amount": qty * rate})
-    subtotal = sum(x["amount"] for x in items)
-    gst = subtotal * gst_percent / 100
-    grand_total = subtotal + gst - discount
-    st.metric("Grand Total", f"₹{grand_total:,.2f}")
-    if st.button("Generate Invoice PDF"):
-        invoice_id = f"MAN-{datetime.now(APP_TZ).strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
-        invoice = dict(invoice_id=invoice_id, customer_name=customer_name, mobile_number=mobile_number, vehicle_reg_no=vehicle_reg_no, vehicle_model=vehicle_model, job_card_no=job_card_no, discount=discount, gst=gst, subtotal=subtotal, grand_total=grand_total, items=items)
-        path = generate_invoice_pdf(invoice)
-        st.success("Invoice generated")
-        st.download_button("Download Invoice PDF", path.read_bytes(), path.name, "application/pdf")
+        invoice_value = st.number_input("Total Invoice Value", min_value=0.0, value=float(data.get("total_invoice_value") or 0.0))
+        customer_name = st.text_input("Customer Name", value=str(data.get("customer_name", "")))
+        vehicle_model = st.text_input("Vehicle Model", value=str(data.get("vehicle_model", "")))
+        mobile_number = st.text_input("Mobile Number", value=str(data.get("mobile_number", "")))
 
-# --------------------------- INVENTORY ---------------------------
-def inventory_page():
-    st.header("📦 Inventory Management")
-    with st.expander("Add / Update Spare"):
+    confidence = int(data.get("ocr_confidence") or 0)
+    st.progress(min(confidence, 100))
+    st.caption(f"OCR Confidence Score: {confidence}%")
+
+    missing = []
+    for label, value in {
+        "Invoice Date": invoice_date,
+        "Job Card Number": job_card_no,
+        "Vehicle Number": vehicle_reg_no,
+        "Total Invoice Value": invoice_value
+    }.items():
+        if not value:
+            missing.append(label)
+
+    if missing:
+        st.warning("Missing fields: " + ", ".join(missing))
+
+    duplicate_status = duplicate_check(job_card_no, vehicle_reg_no, invoice_value)
+    if duplicate_status != "No Duplicate":
+        st.error("Duplicate Warning: " + duplicate_status)
+    else:
+        st.success("No duplicate found.")
+
+    with st.expander("Raw OCR Text"):
+        st.text_area("OCR Text", value=str(data.get("raw_text", "")), height=180)
+
+    if st.button("💾 Save Invoice to Excel", use_container_width=True):
+        if missing:
+            st.error("Please fill missing required fields before save.")
+            return
+
+        invoice_id = str(uuid.uuid4())[:8]
+        append_row("invoices", {
+            "invoice_id": invoice_id,
+            "upload_date": today_str(),
+            "employee_id": emp_id,
+            "employee_name": emp_name,
+            "branch": branch,
+            "invoice_date": invoice_date,
+            "job_card_no": job_card_no,
+            "job_card_last8": job_card_no[-8:] if job_card_no else "",
+            "vehicle_reg_no": vehicle_reg_no.replace(" ", "").upper(),
+            "spare_count": spare_count,
+            "total_spare_amount": spare_amount,
+            "oil_change_status": oil_status,
+            "total_labour_amount": labour_amount,
+            "gst_amount": gst_amount,
+            "total_invoice_value": invoice_value,
+            "customer_name": customer_name,
+            "vehicle_model": vehicle_model,
+            "mobile_number": mobile_number,
+            "ocr_confidence": confidence,
+            "duplicate_status": duplicate_status,
+            "source_file": st.session_state.get("source_file", ""),
+            "raw_text": str(data.get("raw_text", ""))[:5000],
+            "created_at": now_dt()
+        })
+
+        if duplicate_status != "No Duplicate":
+            add_notification("Duplicate Invoice Detection", f"{duplicate_status}: {job_card_no}")
+
+        if customer_name or mobile_number or vehicle_reg_no:
+            append_row("customers", {
+                "customer_id": str(uuid.uuid4())[:8],
+                "customer_name": customer_name,
+                "mobile_number": mobile_number,
+                "vehicle_reg_no": vehicle_reg_no.replace(" ", "").upper(),
+                "vehicle_model": vehicle_model,
+                "warranty_history": "",
+                "insurance_expiry": "",
+                "service_due_date": "",
+                "created_at": now_dt()
+            })
+
+        st.success("Invoice saved in Excel successfully.")
+        del st.session_state["ocr_data"]
+        st.rerun()
+
+
+# =========================================================
+# REPORTS
+# =========================================================
+def page_reports():
+    st.markdown('<div class="hero-title">📑 Reports Export</div>', unsafe_allow_html=True)
+
+    report_type = st.selectbox("Report Type", ["Invoices", "Attendance", "Inventory", "Customers"])
+    sheet_map = {
+        "Invoices": "invoices",
+        "Attendance": "attendance",
+        "Inventory": "inventory",
+        "Customers": "customers"
+    }
+
+    df = read_sheet(sheet_map[report_type])
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        employee_filter = st.text_input("Employee ID Filter")
+    with col2:
+        vehicle_filter = st.text_input("Vehicle Number Filter")
+    with col3:
+        date_filter = st.text_input("Date Filter DD-MM-YYYY")
+
+    filtered = df.copy()
+
+    if employee_filter and "employee_id" in filtered.columns:
+        filtered = filtered[filtered["employee_id"].astype(str).str.contains(employee_filter, case=False, na=False)]
+    if vehicle_filter and "vehicle_reg_no" in filtered.columns:
+        filtered = filtered[filtered["vehicle_reg_no"].astype(str).str.contains(vehicle_filter, case=False, na=False)]
+    if date_filter:
+        date_cols = [c for c in ["date", "upload_date", "invoice_date"] if c in filtered.columns]
+        if date_cols:
+            filtered = filtered[filtered[date_cols[0]].astype(str).str.contains(date_filter, case=False, na=False)]
+
+    st.dataframe(filtered, use_container_width=True)
+
+    csv_data = filtered.to_csv(index=False).encode("utf-8")
+    st.download_button("Download CSV", csv_data, file_name=f"{report_type.lower()}_report.csv", mime="text/csv")
+
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+        filtered.to_excel(writer, sheet_name=report_type, index=False)
+    st.download_button(
+        "Download Excel",
+        excel_buffer.getvalue(),
+        file_name=f"{report_type.lower()}_report.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    if st.button("Generate PDF Report"):
+        pdf_path = generate_table_pdf(filtered.head(40), f"{APP_NAME} - {report_type} Report", f"{report_type.lower()}_report.pdf")
+        with open(pdf_path, "rb") as f:
+            st.download_button("Download PDF", f, file_name=Path(pdf_path).name, mime="application/pdf")
+
+
+# =========================================================
+# ANALYTICS
+# =========================================================
+def page_analytics():
+    st.markdown('<div class="hero-title">📈 Advanced Analytics</div>', unsafe_allow_html=True)
+
+    inv = read_sheet("invoices")
+    if inv.empty:
+        st.info("No invoice data for analytics.")
+        return
+
+    inv["total_invoice_value"] = pd.to_numeric(inv["total_invoice_value"], errors="coerce").fillna(0)
+    inv["total_spare_amount"] = pd.to_numeric(inv["total_spare_amount"], errors="coerce").fillna(0)
+    inv["total_labour_amount"] = pd.to_numeric(inv["total_labour_amount"], errors="coerce").fillna(0)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Invoice Count", len(inv))
+    c2.metric("Total Revenue", f"₹{inv['total_invoice_value'].sum():,.0f}")
+    c3.metric("Oil Change Count", len(inv[inv["oil_change_status"].astype(str).str.lower() == "yes"]))
+
+    st.subheader("Employee-wise Uploads")
+    emp_chart = inv.groupby("employee_name").size().reset_index(name="uploads")
+    st.plotly_chart(px.bar(emp_chart, x="employee_name", y="uploads"), use_container_width=True)
+
+    st.subheader("Branch-wise Performance")
+    branch_chart = inv.groupby("branch")["total_invoice_value"].sum().reset_index()
+    st.plotly_chart(px.bar(branch_chart, x="branch", y="total_invoice_value"), use_container_width=True)
+
+    st.subheader("Most Repaired Vehicles")
+    vehicle_chart = inv.groupby("vehicle_model").size().reset_index(name="count").sort_values("count", ascending=False).head(10)
+    st.plotly_chart(px.bar(vehicle_chart, x="vehicle_model", y="count"), use_container_width=True)
+
+    st.subheader("Revenue Trend")
+    trend = inv.groupby("upload_date")["total_invoice_value"].sum().reset_index()
+    st.plotly_chart(px.line(trend, x="upload_date", y="total_invoice_value", markers=True), use_container_width=True)
+
+
+# =========================================================
+# INVENTORY
+# =========================================================
+def page_inventory():
+    st.markdown('<div class="hero-title">📦 Inventory Management</div>', unsafe_allow_html=True)
+
+    inv = read_sheet("inventory")
+    inv["stock_qty"] = pd.to_numeric(inv["stock_qty"], errors="coerce").fillna(0)
+    inv["min_stock"] = pd.to_numeric(inv["min_stock"], errors="coerce").fillna(0)
+    inv["unit_price"] = pd.to_numeric(inv["unit_price"], errors="coerce").fillna(0)
+
+    low_stock = inv[inv["stock_qty"] <= inv["min_stock"]]
+    if not low_stock.empty:
+        st.error(f"Low Stock Alert: {len(low_stock)} items")
+        st.dataframe(low_stock, use_container_width=True)
+
+    with st.expander("Add / Purchase Spare Entry"):
         c1, c2, c3 = st.columns(3)
-        spare_code = c1.text_input("Spare Code / Barcode")
+        spare_id = c1.text_input("Spare ID", value="SP" + str(len(inv) + 1).zfill(3))
         spare_name = c2.text_input("Spare Name")
-        category = c3.text_input("Category")
-        c4, c5, c6, c7 = st.columns(4)
-        stock_qty = c4.number_input("Stock Qty", min_value=0, value=0)
-        min_qty = c5.number_input("Low Stock Min Qty", min_value=0, value=5)
-        purchase_price = c6.number_input("Purchase Price", min_value=0.0, value=0.0)
-        selling_price = c7.number_input("Selling Price", min_value=0.0, value=0.0)
-        supplier = st.text_input("Supplier")
-        if st.button("Save Spare") and spare_code and spare_name:
-            run_sql("DELETE FROM inventory WHERE spare_code=:c", {"c": spare_code})
-            run_sql(
-                "INSERT INTO inventory(spare_code,spare_name,category,stock_qty,min_qty,purchase_price,selling_price,supplier,barcode,updated_at) VALUES(:spare_code,:spare_name,:category,:stock_qty,:min_qty,:purchase_price,:selling_price,:supplier,:barcode,:updated_at)",
-                dict(spare_code=spare_code, spare_name=spare_name, category=category, stock_qty=stock_qty, min_qty=min_qty, purchase_price=purchase_price, selling_price=selling_price, supplier=supplier, barcode=spare_code, updated_at=now_str()),
-            )
-            st.success("Inventory saved")
-    inv = read_table("inventory")
-    if not inv.empty:
-        st.dataframe(inv, use_container_width=True)
-        low = inv[pd.to_numeric(inv["stock_qty"], errors="coerce") <= pd.to_numeric(inv["min_qty"], errors="coerce")]
-        if not low.empty:
-            st.error("Low stock warning")
-            st.dataframe(low, use_container_width=True)
-            for _, row in low.iterrows():
-                notify("inventory", "Low stock warning", f"{row['spare_name']} stock {row['stock_qty']}", "warning")
+        part_no = c3.text_input("Part Number")
+        category = c1.text_input("Category", value="Spare")
+        supplier = c2.text_input("Supplier", value="Hero Supplier")
+        stock_qty = c3.number_input("Stock Qty", min_value=0, value=1)
+        min_stock = c1.number_input("Min Stock", min_value=0, value=5)
+        unit_price = c2.number_input("Unit Price", min_value=0.0, value=0.0)
 
-# --------------------------- CUSTOMER HISTORY / ADMIN ---------------------------
-def customer_history_page():
-    st.header("🔎 Customer Service History")
-    vehicle = st.text_input("Vehicle Number")
+        if st.button("Save Spare"):
+            if not spare_name:
+                st.error("Spare name required")
+            else:
+                append_row("inventory", {
+                    "spare_id": spare_id,
+                    "spare_name": spare_name,
+                    "part_no": part_no,
+                    "category": category,
+                    "supplier": supplier,
+                    "stock_qty": stock_qty,
+                    "min_stock": min_stock,
+                    "unit_price": unit_price,
+                    "last_updated": now_dt()
+                })
+                st.success("Inventory saved in Excel")
+                st.rerun()
+
+    st.dataframe(inv, use_container_width=True)
+
+
+# =========================================================
+# SEARCH
+# =========================================================
+def page_search():
+    st.markdown('<div class="hero-title">🔍 Smart Search & Filter</div>', unsafe_allow_html=True)
+
+    inv = read_sheet("invoices")
+    query = st.text_input("Search vehicle number / job card / employee ID / customer / mobile")
+
+    if query:
+        q = query.lower()
+        result = inv[
+            inv.astype(str).apply(lambda row: row.str.lower().str.contains(q, na=False).any(), axis=1)
+        ]
+    else:
+        result = inv
+
+    st.dataframe(result, use_container_width=True)
+
+
+# =========================================================
+# CUSTOMER HISTORY
+# =========================================================
+def page_customer_history():
+    st.markdown('<div class="hero-title">🧾 Customer Service History</div>', unsafe_allow_html=True)
+
+    vehicle = st.text_input("Enter Vehicle Number", placeholder="TN51AT6661")
+    inv = read_sheet("invoices")
+    cust = read_sheet("customers")
+
     if vehicle:
-        inv = read_table("invoices")
-        hist = inv[inv["vehicle_reg_no"].astype(str).str.upper() == vehicle.upper()] if not inv.empty else pd.DataFrame()
+        vehicle_clean = vehicle.replace(" ", "").upper()
+        service_history = inv[inv["vehicle_reg_no"].astype(str).str.upper() == vehicle_clean]
+        customer_history = cust[cust["vehicle_reg_no"].astype(str).str.upper() == vehicle_clean]
+
         st.subheader("Previous Services / Invoices")
-        st.dataframe(hist, use_container_width=True)
-        cust = read_table("customers")
-        ch = cust[cust["vehicle_reg_no"].astype(str).str.upper() == vehicle.upper()] if not cust.empty else pd.DataFrame()
-        if not ch.empty:
-            st.subheader("Warranty / Insurance / Due Date")
-            st.dataframe(ch, use_container_width=True)
+        st.dataframe(service_history, use_container_width=True)
+
+        st.subheader("Warranty / Insurance / Due Details")
+        st.dataframe(customer_history, use_container_width=True)
 
 
-def admin_panel_page():
-    st.header("⚙️ Admin Panel")
-    tabs = st.tabs(["Employees", "Notifications", "Settings", "Backup"])
-    with tabs[0]:
-        st.subheader("Create Employee")
+# =========================================================
+# MANUAL INVOICE GENERATOR
+# =========================================================
+def page_manual_invoice():
+    st.markdown('<div class="hero-title">🧾 Manual Hero Style Invoice Generator</div>', unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2)
+    customer = c1.text_input("Customer Name")
+    mobile = c2.text_input("Mobile Number")
+    vehicle = c1.text_input("Vehicle Reg Number")
+    model = c2.text_input("Vehicle Model")
+
+    st.subheader("Spare Parts")
+    spare_count = st.number_input("Number of Spare Rows", min_value=1, max_value=10, value=2)
+    spare_rows = []
+    for i in range(spare_count):
         c1, c2, c3, c4 = st.columns(4)
-        emp_id = c1.text_input("Employee ID")
-        name = c2.text_input("Name")
-        role = c3.selectbox("Role", ["Employee", "Manager", "Branch Admin", "Super Admin"])
-        branch = c4.text_input("Branch", "Main Branch")
-        pwd = st.text_input("Password", type="password")
-        face = st.file_uploader("Register face image", type=["jpg", "jpeg", "png"])
-        if st.button("Create / Update Employee") and emp_id and pwd:
-            face_path = ""
-            if face:
-                face_path = str(UPLOAD_DIR / f"face_{emp_id}.jpg")
-                Path(face_path).write_bytes(face.getvalue())
-            run_sql("DELETE FROM employees WHERE employee_id=:e", {"e": emp_id})
-            run_sql(
-                "INSERT INTO employees(employee_id,name,role,branch,password_hash,registered_face_path,active,created_at) VALUES(:employee_id,:name,:role,:branch,:password_hash,:registered_face_path,1,:created_at)",
-                dict(employee_id=emp_id, name=name, role=role, branch=branch, password_hash=hash_password(pwd), registered_face_path=face_path, created_at=now_str()),
+        name = c1.text_input(f"Spare Name {i+1}", key=f"spare_name_{i}")
+        qty = c2.number_input(f"Qty {i+1}", min_value=0, value=1, key=f"spare_qty_{i}")
+        rate = c3.number_input(f"Rate {i+1}", min_value=0.0, value=0.0, key=f"spare_rate_{i}")
+        amount = qty * rate
+        c4.metric("Amount", f"₹{amount:.2f}")
+        spare_rows.append({"name": name, "qty": qty, "rate": rate, "amount": amount})
+
+    st.subheader("Labour Charges")
+    labour_count = st.number_input("Number of Labour Rows", min_value=1, max_value=10, value=1)
+    labour_rows = []
+    for i in range(labour_count):
+        c1, c2 = st.columns(2)
+        name = c1.text_input(f"Labour Work {i+1}", key=f"lab_name_{i}")
+        amount = c2.number_input(f"Labour Amount {i+1}", min_value=0.0, value=0.0, key=f"lab_amt_{i}")
+        labour_rows.append({"name": name, "amount": amount})
+
+    discount = st.number_input("Discount", min_value=0.0, value=0.0)
+
+    if st.button("Generate Invoice PDF", use_container_width=True):
+        if not customer or not vehicle:
+            st.error("Customer name and vehicle number required.")
+            return
+
+        pdf_path, total = generate_hero_invoice_pdf(customer, mobile, vehicle, model, spare_rows, labour_rows, discount)
+        st.success(f"Invoice generated. Grand Total ₹{total:.2f}")
+        with open(pdf_path, "rb") as f:
+            st.download_button("Download Invoice PDF", f, file_name=Path(pdf_path).name, mime="application/pdf")
+
+
+# =========================================================
+# ADMIN PANEL
+# =========================================================
+def page_admin_panel():
+    st.markdown('<div class="hero-title">⚙️ Admin Panel</div>', unsafe_allow_html=True)
+
+    st.subheader("Employees")
+    emp = read_sheet("employees")
+    st.dataframe(emp, use_container_width=True)
+
+    with st.expander("Add Employee"):
+        c1, c2, c3 = st.columns(3)
+        employee_id = c1.text_input("Employee ID")
+        password = c2.text_input("Password")
+        name = c3.text_input("Name")
+        role = c1.selectbox("Role", ["Employee", "Branch Admin", "Manager", "Super Admin"])
+        branch = c2.text_input("Branch", value="Main Branch")
+        mobile = c3.text_input("Mobile")
+
+        if st.button("Create Employee"):
+            if not employee_id or not password or not name:
+                st.error("Required fields missing")
+            else:
+                if (emp["employee_id"].astype(str) == employee_id).any():
+                    st.error("Employee ID already exists")
+                else:
+                    append_row("employees", {
+                        "employee_id": employee_id,
+                        "password": password,
+                        "name": name,
+                        "role": role,
+                        "branch": branch,
+                        "mobile": mobile,
+                        "device_id": "",
+                        "face_image_path": "",
+                        "status": "Active",
+                        "created_at": now_dt()
+                    })
+                    st.success("Employee created")
+                    st.rerun()
+
+    st.subheader("Excel Database Sheets")
+    selected = st.selectbox("Select Sheet", list(SHEETS.keys()))
+    st.dataframe(read_sheet(selected), use_container_width=True)
+
+
+# =========================================================
+# NOTIFICATIONS
+# =========================================================
+def page_notifications():
+    st.markdown('<div class="hero-title">🔔 Live Notifications</div>', unsafe_allow_html=True)
+    noti = read_sheet("notifications")
+    if noti.empty:
+        st.info("No notifications")
+    else:
+        st.dataframe(noti.sort_index(ascending=False), use_container_width=True)
+
+
+# =========================================================
+# BACKUP
+# =========================================================
+def page_backup():
+    st.markdown('<div class="hero-title">💾 Auto Backup System</div>', unsafe_allow_html=True)
+
+    st.info("Local Excel database backup. Streamlit Cloud la files app storage la temporary irukkum; backup download pannunga.")
+
+    if st.button("Create Backup ZIP"):
+        backup_name = f"selva_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        backup_path = BACKUP_DIR / backup_name
+
+        with zipfile.ZipFile(backup_path, "w", zipfile.ZIP_DEFLATED) as z:
+            if EXCEL_FILE.exists():
+                z.write(EXCEL_FILE, arcname=EXCEL_FILE.name)
+            for p in PDF_DIR.glob("*"):
+                z.write(p, arcname=f"generated_pdfs/{p.name}")
+            for p in UPLOAD_DIR.glob("*"):
+                z.write(p, arcname=f"uploads/{p.name}")
+
+        with open(backup_path, "rb") as f:
+            st.download_button("Download Backup ZIP", f, file_name=backup_name, mime="application/zip")
+
+    st.subheader("Download Current Excel Database")
+    if EXCEL_FILE.exists():
+        with open(EXCEL_FILE, "rb") as f:
+            st.download_button(
+                "Download selva_motors_erp_data.xlsx",
+                f,
+                file_name="selva_motors_erp_data.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-            st.success("Employee saved")
-        st.dataframe(read_table("employees"), use_container_width=True)
-    with tabs[1]:
-        st.dataframe(read_table("notifications").sort_values("id", ascending=False) if not read_table("notifications").empty else pd.DataFrame(), use_container_width=True)
-    with tabs[2]:
-        company_lat = st.text_input("Company Latitude", get_setting("company_lat"))
-        company_lng = st.text_input("Company Longitude", get_setting("company_lng"))
-        radius = st.text_input("Allowed Radius Meter", get_setting("allowed_radius_m"))
-        wifi = st.text_input("Office WiFi SSID", get_setting("office_wifi_ssid"))
-        gst = st.text_input("GST Percent", get_setting("gst_percent"))
-        if st.button("Save Settings"):
-            for k, v in {"company_lat": company_lat, "company_lng": company_lng, "allowed_radius_m": radius, "office_wifi_ssid": wifi, "gst_percent": gst}.items():
-                set_setting(k, v)
-            st.success("Settings saved")
-    with tabs[3]:
-        if st.button("Create Backup ZIP"):
-            backup_path = BACKUP_DIR / f"backup_{datetime.now(APP_TZ).strftime('%Y%m%d_%H%M%S')}.zip"
-            with zipfile.ZipFile(backup_path, "w") as z:
-                for table in ["employees", "attendance", "invoices", "inventory", "customers", "notifications"]:
-                    df = read_table(table)
-                    csv_path = BACKUP_DIR / f"{table}.csv"
-                    df.to_csv(csv_path, index=False)
-                    z.write(csv_path, f"{table}.csv")
-                db_file = BASE_DIR / "smart_showroom_erp.db"
-                if db_file.exists():
-                    z.write(db_file, "smart_showroom_erp.db")
-            st.download_button("Download Backup", backup_path.read_bytes(), backup_path.name, "application/zip")
 
-# --------------------------- VOICE COMMAND ---------------------------
-def voice_command_box():
-    st.sidebar.markdown("### 🎙️ Voice Command")
-    cmd = st.sidebar.text_input("Type voice command text", placeholder="Show today report")
-    if cmd:
-        low = cmd.lower()
-        if "upload" in low and "invoice" in low:
-            st.sidebar.info("Go to Upload Invoice page")
-        elif "today" in low and "report" in low:
-            st.sidebar.info("Go to Reports page and filter today")
-        elif "search vehicle" in low:
-            st.sidebar.info("Go to Customer History page")
 
-# --------------------------- APP ROUTER ---------------------------
+# =========================================================
+# MAIN
+# =========================================================
 def main():
-    check_session_timeout()
-    if not current_user():
+    if not st.session_state.get("logged_in"):
         login_page()
         return
-    user = current_user()
-    st.sidebar.success(f"{user['name']} | {user['role']}")
-    if st.sidebar.button("Logout"):
-        logout()
-    voice_command_box()
-    pages = ["Dashboard", "Attendance", "Upload Invoice", "Reports", "Analytics", "Inventory", "Manual Invoice Generator", "Customer History", "Admin Panel", "Settings"]
-    allowed_employee = ["Dashboard", "Attendance", "Upload Invoice", "Reports", "Manual Invoice Generator", "Customer History"]
-    if user["role"] == "Employee":
-        pages = allowed_employee
-    page = st.sidebar.radio("Pages", pages)
-    st.markdown(f"<div class='hero-card'><h2>🏍️ Selva Motors Smart Employee Attendance & AI Invoice Management</h2><p class='small-muted'>Logged in as {user['employee_id']} • Branch: {user['branch']}</p></div>", unsafe_allow_html=True)
-    st.write("")
-    if page in ["Dashboard", "Analytics"]:
-        dashboard_page()
+
+    page = sidebar_menu()
+
+    if page == "Dashboard":
+        page_dashboard()
     elif page == "Attendance":
-        attendance_page()
+        page_attendance()
     elif page == "Upload Invoice":
-        upload_invoice_page()
+        page_upload_invoice()
     elif page == "Reports":
-        reports_page()
-    elif page == "Inventory":
-        inventory_page()
-    elif page == "Manual Invoice Generator":
-        manual_invoice_page()
+        page_reports()
+    elif page == "Search":
+        page_search()
     elif page == "Customer History":
-        customer_history_page()
-    elif page in ["Admin Panel", "Settings"]:
-        if user["role"] not in ["Super Admin", "Branch Admin", "Manager"]:
-            st.error("Access denied")
-        else:
-            admin_panel_page()
+        page_customer_history()
+    elif page == "Manual Invoice Generator":
+        page_manual_invoice()
+    elif page == "Analytics":
+        page_analytics()
+    elif page == "Inventory":
+        page_inventory()
+    elif page == "Admin Panel":
+        page_admin_panel()
+    elif page == "Notifications":
+        page_notifications()
+    elif page == "Backup":
+        page_backup()
+
 
 if __name__ == "__main__":
     main()
