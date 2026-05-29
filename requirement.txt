@@ -1,0 +1,16 @@
+streamlit
+pandas
+plotly
+sqlalchemy
+pymysql
+openpyxl
+pdfplumber
+PyPDF2
+pytesseract
+Pillow
+reportlab
+qrcode
+streamlit-js-eval
+opencv-python-headless
+face_recognition
+
