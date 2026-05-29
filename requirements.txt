@@ -1,14 +1,10 @@
 streamlit
 pandas
 openpyxl
-plotly
-reportlab
-fpdf
-qrcode
 pillow
+qrcode
+reportlab
 pdfplumber
 PyPDF2
 pytesseract
-opencv-python-headless
-numpy
 streamlit-js-eval
