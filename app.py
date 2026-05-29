@@ -76,39 +76,229 @@ ALLOWED_RADIUS_METER = 300
 # ============================================================
 st.markdown("""
 <style>
-.block-container { padding-top: 1rem; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+.stApp {
+    background:
+        radial-gradient(circle at top left, rgba(34,197,94,.14), transparent 28%),
+        radial-gradient(circle at top right, rgba(59,130,246,.12), transparent 30%),
+        linear-gradient(135deg, #f8fafc 0%, #eef2ff 45%, #f0fdf4 100%);
+}
+
+.block-container {
+    padding-top: 1.2rem;
+    padding-bottom: 2rem;
+    max-width: 1400px;
+}
+
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #020617 0%, #0f172a 48%, #111827 100%);
+}
+
+[data-testid="stSidebar"] * {
+    color: #e5e7eb;
+}
+
+[data-testid="stSidebar"] .stRadio label {
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 14px;
+    margin: 5px 0;
+    padding: 6px 8px;
+}
+
+[data-testid="stSidebar"] .stRadio label:hover {
+    background: rgba(34,197,94,.14);
+    border-color: rgba(34,197,94,.32);
+}
+
 .app-title {
     font-size: 34px;
     font-weight: 900;
-    color: #111827;
-    margin-bottom: 4px;
+    letter-spacing: -.7px;
+    color: #0f172a;
+    margin-bottom: 2px;
 }
-.version-badge {
-    display: inline-block;
-    padding: 8px 14px;
+
+.subtle {
+    color: #64748b;
+    font-size: 14px;
+    margin-bottom: 12px;
+}
+
+.login-shell {
+    min-height: 78vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-card {
+    max-width: 520px;
+    width: 100%;
+    padding: 34px;
+    border-radius: 28px;
+    background: rgba(255,255,255,.86);
+    box-shadow: 0 28px 70px rgba(15,23,42,.18);
+    border: 1px solid rgba(255,255,255,.75);
+    backdrop-filter: blur(16px);
+}
+
+.brand-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
     border-radius: 999px;
     background: #dcfce7;
     color: #166534;
     font-weight: 900;
-    margin-bottom: 12px;
-}
-.card {
-    background: white;
-    border-radius: 16px;
-    padding: 18px;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+    font-size: 13px;
     margin-bottom: 14px;
 }
-.metric-card {
-    background: linear-gradient(135deg, #111827, #374151);
+
+.hero-panel {
+    padding: 22px;
+    border-radius: 24px;
+    background: linear-gradient(135deg, #020617 0%, #0f172a 65%, #14532d 100%);
     color: white;
-    border-radius: 16px;
-    padding: 18px;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
+    box-shadow: 0 20px 48px rgba(2,6,23,.22);
+    border: 1px solid rgba(255,255,255,.08);
+    margin-bottom: 20px;
 }
-.metric-card p { margin: 0; color: #d1d5db; font-size: 14px; }
-.metric-card h2 { margin: 0; font-size: 30px; }
-.stButton>button { border-radius: 10px; font-weight: 700; }
+
+.hero-panel h1 {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -.6px;
+}
+
+.hero-panel p {
+    margin: 7px 0 0 0;
+    color: #cbd5e1;
+}
+
+.glow-card {
+    background: rgba(255,255,255,.92);
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: 22px;
+    padding: 19px;
+    box-shadow: 0 16px 38px rgba(15,23,42,.08);
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.glow-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 50px rgba(15,23,42,.12);
+}
+
+.metric-card {
+    position: relative;
+    overflow: hidden;
+    min-height: 126px;
+    border-radius: 24px;
+    padding: 20px;
+    color: white;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 58%, #16a34a 140%);
+    box-shadow: 0 18px 42px rgba(15,23,42,.20);
+    border: 1px solid rgba(255,255,255,.12);
+}
+
+.metric-card:before {
+    content: "";
+    position: absolute;
+    width: 120px;
+    height: 120px;
+    right: -42px;
+    top: -42px;
+    background: rgba(255,255,255,.13);
+    border-radius: 999px;
+}
+
+.metric-card p {
+    margin: 0;
+    color: #dbeafe;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.metric-card h2 {
+    margin: 8px 0 0 0;
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -.5px;
+}
+
+.metric-card small {
+    color: #bbf7d0;
+    font-weight: 700;
+}
+
+.status-chip {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-weight: 800;
+    font-size: 12px;
+    background: #dcfce7;
+    color: #166534;
+}
+
+.warn-chip {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-weight: 800;
+    font-size: 12px;
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.section-title {
+    font-size: 20px;
+    font-weight: 900;
+    color: #0f172a;
+    margin: 8px 0 10px 0;
+}
+
+.stButton>button {
+    border-radius: 14px !important;
+    font-weight: 800 !important;
+    border: 0 !important;
+    background: linear-gradient(135deg, #16a34a, #2563eb) !important;
+    color: white !important;
+    box-shadow: 0 10px 24px rgba(37,99,235,.18);
+}
+
+.stDownloadButton>button {
+    border-radius: 14px !important;
+    font-weight: 800 !important;
+    border: 0 !important;
+    background: linear-gradient(135deg, #0f172a, #16a34a) !important;
+    color: white !important;
+}
+
+[data-testid="stMetricValue"] {
+    font-weight: 900;
+}
+
+[data-testid="stDataFrame"] {
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 8px 22px rgba(15,23,42,.08);
+}
+
+hr {
+    border: none;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #cbd5e1, transparent);
+    margin: 22px 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -748,30 +938,55 @@ def generate_manual_bill_pdf(customer_name, reg_no, bike_model, spare_rows, labo
 # LOGIN
 # ============================================================
 def page_login():
-    st.markdown(f"<div class='app-title'>🏍️ SELVA MOTORS STAFF LOGIN</div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class="login-shell">
+      <div class="login-card">
+        <div class="brand-pill">🏍️ SELVA MOTORS</div>
+        <div class="app-title">Staff Login</div>
+        <div class="subtle">Smart service entry, reports, manual bill and admin approval system.</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.subheader("🔐 Login")
-    user_id = st.text_input("User ID")
-    password = st.text_input("Password", type="password")
+    # Put Streamlit inputs visually under the card area
+    c1, c2, c3 = st.columns([1, 1.1, 1])
+    with c2:
+        user_id = st.text_input("User ID", placeholder="Enter user id")
+        password = st.text_input("Password", type="password", placeholder="Enter password")
 
-    if st.button("Login", use_container_width=True):
-        user = login_user(user_id, password)
-        if user:
-            st.session_state["logged_in"] = True
-            st.session_state["user_id"] = user["User ID"]
-            st.session_state["employee_name"] = user["Employee Name"]
-            st.session_state["role"] = user["Role"]
-            st.success("Login success")
-            st.rerun()
-        else:
-            st.error("Invalid login")
-
+        if st.button("Login", use_container_width=True):
+            user = login_user(user_id, password)
+            if user:
+                st.session_state["logged_in"] = True
+                st.session_state["user_id"] = user["User ID"]
+                st.session_state["employee_name"] = user["Employee Name"]
+                st.session_state["role"] = user["Role"]
+                st.success("Login success")
+                st.rerun()
+            else:
+                st.error("Invalid login")
 
 def menu_page():
-    st.sidebar.title("🏍️ Selva Motors")
-    st.sidebar.success(f"{st.session_state.get('employee_name')} | {st.session_state.get('role')}")
+    st.sidebar.markdown("""
+    <div style="padding:14px 6px 10px 6px;">
+        <div style="font-size:28px;font-weight:900;color:#ffffff;line-height:1;">🏍️ SELVA</div>
+        <div style="font-size:13px;font-weight:900;letter-spacing:4px;color:#22c55e;">MOTORS</div>
+        <div style="height:1px;background:rgba(255,255,255,.12);margin:14px 0;"></div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    if st.sidebar.button("Logout"):
+    st.sidebar.markdown(
+        f"""
+        <div style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.08);
+        padding:12px;border-radius:18px;margin-bottom:12px;">
+            <div style="font-weight:900;color:#fff;">{st.session_state.get('employee_name')}</div>
+            <div style="font-size:12px;color:#86efac;font-weight:800;">{st.session_state.get('role')}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
@@ -796,15 +1011,50 @@ def menu_page():
     else:
         pages = ["Dashboard"]
 
-    return st.sidebar.radio("Menu", pages)
+    icons = {
+        "Dashboard": "📊",
+        "Attendance": "📍",
+        "Upload Invoice": "📄",
+        "Reports": "📑",
+        "Search": "🔍",
+        "Customer Service History": "🧾",
+        "Manual Invoice Generator": "🧾",
+        "Admin Panel": "⚙️",
+        "Manager Edit": "✏️",
+        "Delete Invoice Request": "🗑️",
+    }
+    labels = [f"{icons.get(p, '•')} {p}" for p in pages]
+    selected_label = st.sidebar.radio("Menu", labels, label_visibility="collapsed")
+    selected_page = selected_label.split(" ", 1)[1]
 
+    st.sidebar.markdown("""
+    <div style="margin-top:18px;padding:16px;border-radius:20px;background:rgba(34,197,94,.10);
+    border:1px solid rgba(34,197,94,.18);">
+        <div style="font-weight:900;color:#fff;">Premium Service</div>
+        <div style="font-size:12px;color:#cbd5e1;">Trusted care. Every ride.</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    return selected_page
 
 def metric_card(title, value, caption=""):
     st.markdown(f"""
     <div class="metric-card">
         <p>{title}</p>
         <h2>{value}</h2>
-        <p>{caption}</p>
+        <small>{caption}</small>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+
+def page_hero(title, subtitle, chip=""):
+    chip_html = f"<span class='status-chip'>{chip}</span>" if chip else ""
+    st.markdown(f"""
+    <div class="hero-panel">
+        {chip_html}
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -813,7 +1063,7 @@ def metric_card(title, value, caption=""):
 # DASHBOARD
 # ============================================================
 def page_dashboard():
-    st.markdown(f"<div class='app-title'>📊 Dashboard</div>", unsafe_allow_html=True)
+    page_hero("Dashboard", "Live service overview, revenue, entries and role-based summaries.", st.session_state.get("role", ""))
 
     invoices = read_sheet("invoices")
     invoices["Total Amount"] = pd.to_numeric(invoices["Total Amount"], errors="coerce").fillna(0)
@@ -889,7 +1139,7 @@ def page_dashboard():
 # ATTENDANCE
 # ============================================================
 def page_attendance():
-    st.markdown("<div class='app-title'>📍 Attendance</div>", unsafe_allow_html=True)
+    page_hero("Attendance", "Mark attendance with GPS radius and selfie proof.", "GPS Enabled")
 
     user_id = st.session_state["user_id"]
     name = st.session_state["employee_name"]
@@ -970,7 +1220,7 @@ def page_attendance():
 # UPLOAD INVOICE
 # ============================================================
 def page_upload_invoice():
-    st.markdown("<div class='app-title'>📄 AI Invoice OCR Upload</div>", unsafe_allow_html=True)
+    page_hero("Invoice OCR Upload", "Upload invoice, verify view-only extracted values and proceed the entry.", "OCR")
     st.caption("OCR Preview is view-only. Values are cleaned before Excel save. Raw OCR text is not saved.")
 
     uploaded = st.file_uploader("Upload Invoice PDF / Image", type=["pdf", "jpg", "jpeg", "png", "webp"])
@@ -1004,7 +1254,17 @@ def page_upload_invoice():
 
     data = st.session_state["ocr_preview"]
 
-    st.subheader("View Only OCR Preview")
+    st.markdown("<div class='section-title'>View Only OCR Preview</div>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="glow-card">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div><b>Invoice</b><br><span style="color:#16a34a;font-weight:900;">{data.get("Invoice Number", "")}</span></div>
+            <div><b>Registration</b><br><span style="color:#0f172a;font-weight:900;">{data.get("Registration Number", "")}</span></div>
+            <div><b>Bike Model</b><br><span style="color:#0f172a;font-weight:900;">{data.get("Bike Model", "")}</span></div>
+            <div><b>Total</b><br><span style="color:#16a34a;font-weight:900;">₹{data.get("Total Amount", 0)}</span></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     preview_df = pd.DataFrame([{
         "Invoice Number": data.get("Invoice Number", ""),
         "Registration Number": data.get("Registration Number", ""),
@@ -1068,7 +1328,7 @@ def page_upload_invoice():
 # REPORTS
 # ============================================================
 def page_reports():
-    st.markdown("<div class='app-title'>📑 Reports</div>", unsafe_allow_html=True)
+    page_hero("Reports", "Generate all-technician or particular-technician PDF service reports.", "PDF")
 
     invoices = read_sheet("invoices")
 
@@ -1116,7 +1376,7 @@ def page_reports():
             reg_clean = clean_reg_no(reg_filter)
             invoices = invoices[invoices["Registration Number"].astype(str).str.upper() == reg_clean]
 
-    st.subheader("Report Preview")
+    st.markdown("<div class='section-title'>Report Preview</div>", unsafe_allow_html=True)
 
     show_cols = [
         "Technician Name", "Date", "Registration Number",
@@ -1163,7 +1423,7 @@ def page_reports():
 # SEARCH
 # ============================================================
 def page_search():
-    st.markdown("<div class='app-title'>🔍 Search</div>", unsafe_allow_html=True)
+    page_hero("Smart Search", "Search invoice entries by registration number, invoice number or technician.", "Search")
 
     invoices = read_sheet("invoices")
     query = st.text_input("Search by Registration Number / Invoice Number / Technician Name")
@@ -1189,7 +1449,7 @@ def page_search():
 # CUSTOMER SERVICE HISTORY
 # ============================================================
 def page_customer_service_history():
-    st.markdown("<div class='app-title'>🧾 Customer Service History</div>", unsafe_allow_html=True)
+    page_hero("Customer Service History", "Today service entries and registration-number based history search.", "History")
 
     invoices = read_sheet("invoices")
     today = today_str()
@@ -1204,10 +1464,10 @@ def page_customer_service_history():
         today_entries = invoices[invoices["Date"].astype(str) == today]
         st.info("Admin/Manager view: all today's service entries are shown.")
 
-    st.subheader("Today’s Service Entry History")
+    st.markdown("<div class='section-title'>Today’s Service Entry History</div>", unsafe_allow_html=True)
     st.dataframe(today_entries, use_container_width=True)
 
-    st.subheader("Registration Number Search")
+    st.markdown("<div class='section-title'>Registration Number Search</div>", unsafe_allow_html=True)
     reg = st.text_input("Enter Registration Number", placeholder="TN51AT6661")
     if reg:
         reg_clean = clean_reg_no(reg)
@@ -1219,7 +1479,7 @@ def page_customer_service_history():
 # MANUAL INVOICE GENERATOR
 # ============================================================
 def page_manual_invoice():
-    st.markdown("<div class='app-title'>🧾 Manual Bill</div>", unsafe_allow_html=True)
+    page_hero("Manual Bill", "Generate Hero-style manual service bill PDF with serial numbered spare rows.", "PDF Bill")
     st.caption("Hero-style manual bill PDF. Technician name is taken from current logged-in user.")
 
     c1, c2 = st.columns(2)
@@ -1266,7 +1526,7 @@ def page_manual_invoice():
 # DELETE INVOICE REQUEST
 # ============================================================
 def page_delete_invoice_request():
-    st.markdown("<div class='app-title'>🗑️ Delete Invoice Request</div>", unsafe_allow_html=True)
+    page_hero("Delete Invoice Request", "Technicians can request deletion; Admin approves or rejects.", "Approval")
 
     invoices = read_sheet("invoices")
     own = invoices[
@@ -1319,7 +1579,7 @@ def page_delete_invoice_request():
 # ADMIN PANEL
 # ============================================================
 def page_admin_panel():
-    st.markdown("<div class='app-title'>⚙️ Admin Panel</div>", unsafe_allow_html=True)
+    page_hero("Admin Panel", "Employee edit, technician revenue, delete approvals and protected Excel access.", "Admin")
 
     invoices = read_sheet("invoices")
     invoices["Total Amount"] = pd.to_numeric(invoices["Total Amount"], errors="coerce").fillna(0)
@@ -1435,7 +1695,7 @@ def page_admin_panel():
 # MANAGER EDIT
 # ============================================================
 def page_manager_edit():
-    st.markdown("<div class='app-title'>✏️ Manager Edit</div>", unsafe_allow_html=True)
+    page_hero("Manager Edit", "Password protected entry status edit options.", "Protected")
 
     pwd = st.text_input("Enter edit password", type="password")
     if pwd != SECRET_PASSWORD:
