@@ -66,9 +66,9 @@ BACKUP_DIR.mkdir(exist_ok=True)
 
 EXCEL_FILE = DATA_DIR / "selva_motors_excel_storage.xlsx"
 
-COMPANY_LAT = 11.1271
-COMPANY_LON = 78.6569
-ALLOWED_RADIUS_METER = 300
+COMPANY_LAT = 10.759710
+COMPANY_LON = 79.742772
+ALLOWED_RADIUS_METER = 400
 
 
 # ============================================================
