@@ -78,25 +78,40 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
 
+:root {
+    --hero-dark: #070b13;
+    --hero-navy: #0f172a;
+    --hero-green: #22c55e;
+    --hero-blue: #2563eb;
+    --hero-red: #ef4444;
+    --hero-gold: #f59e0b;
+    --hero-card: rgba(255,255,255,.88);
+    --hero-border: rgba(226,232,240,.85);
+}
+
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 
 .stApp {
     background:
-        radial-gradient(circle at top left, rgba(34,197,94,.14), transparent 28%),
-        radial-gradient(circle at top right, rgba(59,130,246,.12), transparent 30%),
-        linear-gradient(135deg, #f8fafc 0%, #eef2ff 45%, #f0fdf4 100%);
+        radial-gradient(circle at 3% 0%, rgba(34,197,94,.18), transparent 26%),
+        radial-gradient(circle at 98% 3%, rgba(37,99,235,.16), transparent 28%),
+        radial-gradient(circle at 70% 100%, rgba(245,158,11,.12), transparent 30%),
+        linear-gradient(135deg, #f8fafc 0%, #eef2ff 48%, #f0fdf4 100%);
 }
 
 .block-container {
-    padding-top: 1.2rem;
+    padding-top: 1.05rem;
     padding-bottom: 2rem;
-    max-width: 1400px;
+    max-width: 1420px;
 }
 
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #020617 0%, #0f172a 48%, #111827 100%);
+    background:
+        linear-gradient(180deg, rgba(2,6,23,.98), rgba(15,23,42,.99) 58%, rgba(5,46,22,.98)),
+        radial-gradient(circle at 50% 0%, rgba(34,197,94,.22), transparent 36%);
+    border-right: 1px solid rgba(255,255,255,.08);
 }
 
 [data-testid="stSidebar"] * {
@@ -104,22 +119,31 @@ html, body, [class*="css"] {
 }
 
 [data-testid="stSidebar"] .stRadio label {
-    background: rgba(255,255,255,.03);
-    border: 1px solid rgba(255,255,255,.06);
-    border-radius: 14px;
-    margin: 5px 0;
-    padding: 6px 8px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 15px;
+    margin: 6px 0;
+    padding: 7px 8px;
+    transition: all .18s ease;
 }
 
 [data-testid="stSidebar"] .stRadio label:hover {
-    background: rgba(34,197,94,.14);
-    border-color: rgba(34,197,94,.32);
+    background: rgba(34,197,94,.18);
+    border-color: rgba(34,197,94,.38);
+    transform: translateX(3px);
+}
+
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+textarea {
+    border-radius: 14px !important;
+    border: 1px solid #cbd5e1 !important;
 }
 
 .app-title {
     font-size: 34px;
     font-weight: 900;
-    letter-spacing: -.7px;
+    letter-spacing: -.8px;
     color: #0f172a;
     margin-bottom: 2px;
 }
@@ -130,52 +154,119 @@ html, body, [class*="css"] {
     margin-bottom: 12px;
 }
 
-.login-shell {
-    min-height: 78vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.login-wrap {
+    min-height: 77vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
 }
 
-.login-card {
-    max-width: 520px;
+.login-hero {
+    max-width: 620px;
     width: 100%;
-    padding: 34px;
-    border-radius: 28px;
-    background: rgba(255,255,255,.86);
-    box-shadow: 0 28px 70px rgba(15,23,42,.18);
-    border: 1px solid rgba(255,255,255,.75);
-    backdrop-filter: blur(16px);
+    padding: 36px;
+    border-radius: 32px;
+    background:
+        linear-gradient(145deg, rgba(255,255,255,.94), rgba(255,255,255,.78)),
+        radial-gradient(circle at 0% 0%, rgba(34,197,94,.24), transparent 40%);
+    box-shadow: 0 30px 80px rgba(15,23,42,.22);
+    border: 1px solid rgba(255,255,255,.8);
+    backdrop-filter: blur(18px);
+    position: relative;
+    overflow: hidden;
 }
 
-.brand-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 14px;
+.login-hero:before {
+    content:"";
+    position:absolute;
+    width:210px;
+    height:210px;
+    border-radius:50%;
+    background:rgba(34,197,94,.16);
+    right:-70px;
+    top:-80px;
+}
+
+.brand-row {
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom: 12px;
+}
+
+.brand-logo {
+    height:58px;
+    width:58px;
+    border-radius:20px;
+    display:grid;
+    place-items:center;
+    background: linear-gradient(135deg, #111827, #16a34a);
+    color:white;
+    font-size:28px;
+    box-shadow:0 16px 30px rgba(22,163,74,.28);
+}
+
+.brand-text h1 {
+    margin:0;
+    font-size:31px;
+    font-weight:900;
+    letter-spacing:-.7px;
+    color:#0f172a;
+}
+
+.brand-text p {
+    margin:0;
+    color:#16a34a;
+    font-weight:900;
+    letter-spacing:3px;
+    font-size:12px;
+}
+
+.feature-strip {
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin: 14px 0 4px 0;
+}
+
+.feature-pill {
+    padding: 7px 10px;
     border-radius: 999px;
-    background: #dcfce7;
-    color: #166534;
-    font-weight: 900;
-    font-size: 13px;
-    margin-bottom: 14px;
+    background:#ecfdf5;
+    color:#166534;
+    border:1px solid #bbf7d0;
+    font-weight:800;
+    font-size:12px;
 }
 
 .hero-panel {
-    padding: 22px;
-    border-radius: 24px;
-    background: linear-gradient(135deg, #020617 0%, #0f172a 65%, #14532d 100%);
+    position:relative;
+    overflow:hidden;
+    padding: 24px;
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at 100% 0%, rgba(34,197,94,.28), transparent 34%),
+        linear-gradient(135deg, #020617 0%, #0f172a 58%, #052e16 130%);
     color: white;
-    box-shadow: 0 20px 48px rgba(2,6,23,.22);
-    border: 1px solid rgba(255,255,255,.08);
+    box-shadow: 0 22px 54px rgba(2,6,23,.22);
+    border: 1px solid rgba(255,255,255,.10);
     margin-bottom: 20px;
+}
+
+.hero-panel:after {
+    content:"🏍️";
+    position:absolute;
+    right:24px;
+    bottom:12px;
+    font-size:74px;
+    opacity:.10;
 }
 
 .hero-panel h1 {
     margin: 0;
-    font-size: 30px;
+    font-size: 31px;
     font-weight: 900;
-    letter-spacing: -.6px;
+    letter-spacing: -.7px;
 }
 
 .hero-panel p {
@@ -183,40 +274,56 @@ html, body, [class*="css"] {
     color: #cbd5e1;
 }
 
+.status-chip {
+    display: inline-flex;
+    align-items:center;
+    gap:6px;
+    padding: 6px 11px;
+    border-radius: 999px;
+    font-weight: 900;
+    font-size: 12px;
+    background: rgba(34,197,94,.16);
+    color: #bbf7d0;
+    border: 1px solid rgba(187,247,208,.25);
+    margin-bottom: 10px;
+}
+
 .glow-card {
     background: rgba(255,255,255,.92);
-    border: 1px solid rgba(226,232,240,.95);
-    border-radius: 22px;
-    padding: 19px;
-    box-shadow: 0 16px 38px rgba(15,23,42,.08);
-    transition: transform .15s ease, box-shadow .15s ease;
+    border: 1px solid var(--hero-border);
+    border-radius: 24px;
+    padding: 20px;
+    box-shadow: 0 17px 42px rgba(15,23,42,.09);
+    transition: transform .16s ease, box-shadow .16s ease;
 }
 
 .glow-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 20px 50px rgba(15,23,42,.12);
+    box-shadow: 0 24px 58px rgba(15,23,42,.13);
 }
 
 .metric-card {
     position: relative;
     overflow: hidden;
-    min-height: 126px;
-    border-radius: 24px;
-    padding: 20px;
+    min-height: 132px;
+    border-radius: 26px;
+    padding: 21px;
     color: white;
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 58%, #16a34a 140%);
-    box-shadow: 0 18px 42px rgba(15,23,42,.20);
-    border: 1px solid rgba(255,255,255,.12);
+    background:
+        radial-gradient(circle at 100% 0%, rgba(255,255,255,.18), transparent 30%),
+        linear-gradient(135deg, #111827 0%, #1e293b 58%, #16a34a 145%);
+    box-shadow: 0 20px 50px rgba(15,23,42,.20);
+    border: 1px solid rgba(255,255,255,.13);
 }
 
 .metric-card:before {
     content: "";
     position: absolute;
-    width: 120px;
-    height: 120px;
-    right: -42px;
-    top: -42px;
-    background: rgba(255,255,255,.13);
+    width: 135px;
+    height: 135px;
+    right: -46px;
+    top: -48px;
+    background: rgba(255,255,255,.12);
     border-radius: 999px;
 }
 
@@ -224,80 +331,153 @@ html, body, [class*="css"] {
     margin: 0;
     color: #dbeafe;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 800;
 }
 
 .metric-card h2 {
     margin: 8px 0 0 0;
-    font-size: 30px;
+    font-size: 31px;
     font-weight: 900;
-    letter-spacing: -.5px;
+    letter-spacing: -.6px;
 }
 
 .metric-card small {
     color: #bbf7d0;
-    font-weight: 700;
+    font-weight: 800;
 }
 
-.status-chip {
-    display: inline-block;
-    padding: 5px 10px;
-    border-radius: 999px;
-    font-weight: 800;
-    font-size: 12px;
-    background: #dcfce7;
-    color: #166534;
+.quick-card {
+    padding:18px;
+    border-radius:22px;
+    background: linear-gradient(135deg, rgba(255,255,255,.95), rgba(240,253,244,.92));
+    border:1px solid rgba(187,247,208,.7);
+    box-shadow:0 14px 34px rgba(15,23,42,.08);
 }
 
-.warn-chip {
-    display: inline-block;
-    padding: 5px 10px;
-    border-radius: 999px;
-    font-weight: 800;
-    font-size: 12px;
-    background: #fee2e2;
-    color: #991b1b;
+.quick-card h3 {
+    margin:0;
+    font-size:17px;
+    color:#0f172a;
+    font-weight:900;
+}
+
+.quick-card p {
+    color:#64748b;
+    margin:6px 0 0 0;
+    font-size:13px;
 }
 
 .section-title {
     font-size: 20px;
     font-weight: 900;
     color: #0f172a;
-    margin: 8px 0 10px 0;
+    margin: 10px 0 11px 0;
+    letter-spacing:-.2px;
+}
+
+.bill-preview {
+    border-radius:26px;
+    background:#fff;
+    border:1px solid #e2e8f0;
+    padding:22px;
+    box-shadow:0 18px 44px rgba(15,23,42,.10);
+    position:relative;
+    overflow:hidden;
+}
+
+.bill-preview:before {
+    content:"";
+    height:7px;
+    background:linear-gradient(90deg,#111827,#16a34a,#ef4444);
+    position:absolute;
+    top:0;
+    left:0;
+    right:0;
+}
+
+.bill-preview h2 {
+    margin:8px 0 3px 0;
+    font-weight:900;
+    color:#0f172a;
+}
+
+.preview-grid {
+    display:grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap:12px;
+}
+
+.preview-item {
+    padding:13px;
+    border-radius:17px;
+    background:#f8fafc;
+    border:1px solid #e2e8f0;
+}
+
+.preview-item b {
+    display:block;
+    color:#64748b;
+    font-size:12px;
+}
+
+.preview-item span {
+    display:block;
+    color:#0f172a;
+    font-weight:900;
+    margin-top:4px;
+}
+
+.approve-box {
+    border-radius:20px;
+    background:#fff;
+    padding:16px;
+    border:1px solid #fee2e2;
+    box-shadow:0 12px 28px rgba(239,68,68,.08);
+    margin-bottom:12px;
 }
 
 .stButton>button {
-    border-radius: 14px !important;
-    font-weight: 800 !important;
+    border-radius: 15px !important;
+    font-weight: 900 !important;
     border: 0 !important;
     background: linear-gradient(135deg, #16a34a, #2563eb) !important;
     color: white !important;
-    box-shadow: 0 10px 24px rgba(37,99,235,.18);
+    box-shadow: 0 12px 28px rgba(37,99,235,.19);
 }
 
 .stDownloadButton>button {
-    border-radius: 14px !important;
-    font-weight: 800 !important;
+    border-radius: 15px !important;
+    font-weight: 900 !important;
     border: 0 !important;
     background: linear-gradient(135deg, #0f172a, #16a34a) !important;
     color: white !important;
 }
 
-[data-testid="stMetricValue"] {
-    font-weight: 900;
+[data-testid="stDataFrame"] {
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 11px 30px rgba(15,23,42,.08);
 }
 
-[data-testid="stDataFrame"] {
-    border-radius: 18px;
-    overflow: hidden;
-    box-shadow: 0 8px 22px rgba(15,23,42,.08);
+[data-testid="stMetric"] {
+    background: rgba(255,255,255,.88);
+    padding:16px;
+    border-radius:18px;
+    border:1px solid #e2e8f0;
+    box-shadow:0 10px 28px rgba(15,23,42,.07);
 }
 
 hr {
     border: none;
     height: 1px;
     background: linear-gradient(90deg, transparent, #cbd5e1, transparent);
-    margin: 22px 0;
+    margin: 24px 0;
+}
+
+@media (max-width: 768px) {
+    .preview-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+    .hero-panel h1 { font-size: 24px; }
+    .metric-card h2 { font-size: 25px; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -939,17 +1119,28 @@ def generate_manual_bill_pdf(customer_name, reg_no, bike_model, spare_rows, labo
 # ============================================================
 def page_login():
     st.markdown("""
-    <div class="login-shell">
-      <div class="login-card">
-        <div class="brand-pill">🏍️ SELVA MOTORS</div>
-        <div class="app-title">Staff Login</div>
-        <div class="subtle">Smart service entry, reports, manual bill and admin approval system.</div>
-      </div>
+    <div class="login-wrap">
+        <div class="login-hero">
+            <div class="brand-row">
+                <div class="brand-logo">🏍️</div>
+                <div class="brand-text">
+                    <h1>SELVA MOTORS</h1>
+                    <p>SERVICE ERP</p>
+                </div>
+            </div>
+            <div style="font-size:26px;font-weight:900;color:#0f172a;margin-top:8px;">Staff Login Portal</div>
+            <div class="subtle">Premium service management dashboard for attendance, invoice entry, reports and manual bill workflow.</div>
+            <div class="feature-strip">
+                <div class="feature-pill">Excel Storage</div>
+                <div class="feature-pill">Role Based</div>
+                <div class="feature-pill">OCR Entry</div>
+                <div class="feature-pill">PDF Reports</div>
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Put Streamlit inputs visually under the card area
-    c1, c2, c3 = st.columns([1, 1.1, 1])
+    c1, c2, c3 = st.columns([1, 1.05, 1])
     with c2:
         user_id = st.text_input("User ID", placeholder="Enter user id")
         password = st.text_input("Password", type="password", placeholder="Enter password")
@@ -968,19 +1159,24 @@ def page_login():
 
 def menu_page():
     st.sidebar.markdown("""
-    <div style="padding:14px 6px 10px 6px;">
-        <div style="font-size:28px;font-weight:900;color:#ffffff;line-height:1;">🏍️ SELVA</div>
+    <div style="padding:12px 4px 10px 4px;">
+        <div style="height:58px;width:58px;border-radius:22px;background:linear-gradient(135deg,#111827,#16a34a);
+        display:grid;place-items:center;font-size:28px;box-shadow:0 16px 32px rgba(34,197,94,.25);">🏍️</div>
+        <div style="font-size:29px;font-weight:900;color:#fff;line-height:1;margin-top:12px;">SELVA</div>
         <div style="font-size:13px;font-weight:900;letter-spacing:4px;color:#22c55e;">MOTORS</div>
-        <div style="height:1px;background:rgba(255,255,255,.12);margin:14px 0;"></div>
+        <div style="height:1px;background:rgba(255,255,255,.12);margin:15px 0;"></div>
     </div>
     """, unsafe_allow_html=True)
 
     st.sidebar.markdown(
         f"""
-        <div style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.08);
-        padding:12px;border-radius:18px;margin-bottom:12px;">
-            <div style="font-weight:900;color:#fff;">{st.session_state.get('employee_name')}</div>
-            <div style="font-size:12px;color:#86efac;font-weight:800;">{st.session_state.get('role')}</div>
+        <div style="background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.10);
+        padding:14px;border-radius:20px;margin-bottom:12px;">
+            <div style="font-size:13px;color:#94a3b8;font-weight:800;">Logged in as</div>
+            <div style="font-size:17px;font-weight:900;color:#fff;">{st.session_state.get('employee_name')}</div>
+            <div style="display:inline-block;margin-top:7px;padding:5px 10px;border-radius:999px;
+            background:rgba(34,197,94,.14);color:#bbf7d0;font-size:12px;font-weight:900;">
+            {st.session_state.get('role')}</div>
         </div>
         """,
         unsafe_allow_html=True
@@ -1028,10 +1224,10 @@ def menu_page():
     selected_page = selected_label.split(" ", 1)[1]
 
     st.sidebar.markdown("""
-    <div style="margin-top:18px;padding:16px;border-radius:20px;background:rgba(34,197,94,.10);
-    border:1px solid rgba(34,197,94,.18);">
-        <div style="font-weight:900;color:#fff;">Premium Service</div>
-        <div style="font-size:12px;color:#cbd5e1;">Trusted care. Every ride.</div>
+    <div style="margin-top:18px;padding:16px;border-radius:22px;background:rgba(34,197,94,.10);
+    border:1px solid rgba(34,197,94,.22);">
+        <div style="font-weight:900;color:#fff;">Hero Service Style</div>
+        <div style="font-size:12px;color:#cbd5e1;margin-top:4px;">Fast entry • Clean reports • Smart approval</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1047,25 +1243,16 @@ def metric_card(title, value, caption=""):
     """, unsafe_allow_html=True)
 
 
-
-def page_hero(title, subtitle, chip=""):
-    chip_html = f"<span class='status-chip'>{chip}</span>" if chip else ""
-    st.markdown(f"""
-    <div class="hero-panel">
-        {chip_html}
-        <h1>{title}</h1>
-        <p>{subtitle}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
 # ============================================================
 # DASHBOARD
 # ============================================================
 def page_dashboard():
-    page_hero("Dashboard", "Live service overview, revenue, entries and role-based summaries.", st.session_state.get("role", ""))
+    page_hero("Service Control Dashboard", "Role-based Selva Motors ERP command center with clean revenue, service entries and approvals.", st.session_state.get("role", ""))
 
     invoices = read_sheet("invoices")
+    attendance = read_sheet("attendance")
+    delete_req = read_sheet("delete_requests")
+
     invoices["Total Amount"] = pd.to_numeric(invoices["Total Amount"], errors="coerce").fillna(0)
     invoices["Labour Amount"] = pd.to_numeric(invoices["Labour Amount"], errors="coerce").fillna(0)
 
@@ -1077,27 +1264,45 @@ def page_dashboard():
             (invoices["User ID"].astype(str) == user_id) &
             (invoices["Date"].astype(str) == today)
         ]
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            metric_card("Today Revenue", f"₹{view_df['Total Amount'].sum():,.0f}", "Only your today entries")
-        with c2:
-            metric_card("Today Vehicle Entries", len(view_df), "Your entries")
-        with c3:
-            metric_card("Today Labour", f"₹{view_df['Labour Amount'].sum():,.0f}", "Your labour amount")
+        pending_req = delete_req[
+            (delete_req["User ID"].astype(str) == user_id) &
+            (delete_req["Request Status"].astype(str) == "Pending")
+        ]
 
-        st.subheader("Your Today Entry Details")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            metric_card("Today Revenue", f"₹{view_df['Total Amount'].sum():,.0f}", "Your entries only")
+        with c2:
+            metric_card("Vehicle Entries", len(view_df), "Today completed")
+        with c3:
+            metric_card("Labour Amount", f"₹{view_df['Labour Amount'].sum():,.0f}", "Today labour")
+        with c4:
+            metric_card("Delete Requests", len(pending_req), "Pending approval")
+
+        st.markdown("<div class='section-title'>Technician Quick Actions</div>", unsafe_allow_html=True)
+        q1, q2, q3 = st.columns(3)
+        with q1:
+            quick_card("Upload Invoice", "OCR upload and view-only preview before entry.", "📄")
+        with q2:
+            quick_card("Manual Bill", "Generate Hero-style bill with technician name.", "🧾")
+        with q3:
+            quick_card("Delete Request", "Request Admin approval for invoice deletion.", "🗑️")
+
+        st.markdown("<div class='section-title'>My Today Entries</div>", unsafe_allow_html=True)
         st.dataframe(view_df, use_container_width=True)
         return
 
     if is_prathisha():
-        attendance = read_sheet("attendance")
         today_att = attendance[attendance["Date"].astype(str) == today]
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
-            metric_card("Today Attendance Count", len(today_att), "System staff view")
+            metric_card("Today Attendance", len(today_att), "System staff view")
         with c2:
-            metric_card("Excel Storage", "Active", "No technician work options")
-        st.subheader("Today Attendance")
+            metric_card("Role Access", "Limited", "Attendance only")
+        with c3:
+            metric_card("Storage", "Excel", "Secure local sheet")
+
+        st.markdown("<div class='section-title'>Today Attendance List</div>", unsafe_allow_html=True)
         st.dataframe(today_att, use_container_width=True)
         return
 
@@ -1106,32 +1311,57 @@ def page_dashboard():
         temp = invoices.copy()
         temp["Month"] = pd.to_datetime(temp["Date"], format="%d-%m-%Y", errors="coerce").dt.strftime("%m-%Y")
         month_df = temp[temp["Month"] == month_key]
+        today_df = invoices[invoices["Date"].astype(str) == today]
+        pending_req = delete_req[delete_req["Request Status"].astype(str) == "Pending"]
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
             metric_card("Monthly Revenue", f"₹{month_df['Total Amount'].sum():,.0f}", "Admin only")
         with c2:
-            metric_card("Today Revenue", f"₹{invoices[invoices['Date'].astype(str) == today]['Total Amount'].sum():,.0f}", "All technicians")
+            metric_card("Today Revenue", f"₹{today_df['Total Amount'].sum():,.0f}", "All technicians")
         with c3:
-            metric_card("Total Entries", len(invoices), "All invoice entries")
+            metric_card("Today Entries", len(today_df), "All vehicles")
+        with c4:
+            metric_card("Delete Requests", len(pending_req), "Need action")
 
-        st.subheader("Technician-wise Revenue")
+        st.markdown("<div class='section-title'>Admin Command Shortcuts</div>", unsafe_allow_html=True)
+        q1, q2, q3 = st.columns(3)
+        with q1:
+            quick_card("Reports", "Generate all or particular technician PDF report.", "📑")
+        with q2:
+            quick_card("Approvals", "Approve or reject technician delete requests.", "✅")
+        with q3:
+            quick_card("Employee Control", "Add or update employees from Admin Panel.", "👥")
+
+        st.markdown("<div class='section-title'>Technician-wise Revenue</div>", unsafe_allow_html=True)
         if not invoices.empty:
             tech = invoices.groupby("Technician Name", dropna=False)["Total Amount"].sum().reset_index()
             st.dataframe(tech, use_container_width=True)
 
-        st.subheader("Recent Entries")
+        st.markdown("<div class='section-title'>Recent Service Entries</div>", unsafe_allow_html=True)
         st.dataframe(invoices.tail(20), use_container_width=True)
         return
 
     if is_manager():
         today_df = invoices[invoices["Date"].astype(str) == today]
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             metric_card("Today Revenue", f"₹{today_df['Total Amount'].sum():,.0f}", "Manager view")
         with c2:
-            metric_card("Today Entries", len(today_df), "All technician entries")
-        st.subheader("Today Entries")
+            metric_card("Today Entries", len(today_df), "All technicians")
+        with c3:
+            metric_card("Edit Access", "Protected", "Password required")
+
+        st.markdown("<div class='section-title'>Manager Quick Actions</div>", unsafe_allow_html=True)
+        q1, q2, q3 = st.columns(3)
+        with q1:
+            quick_card("Reports", "View all or particular technician entries.", "📑")
+        with q2:
+            quick_card("Manager Edit", "Update status with password protection.", "✏️")
+        with q3:
+            quick_card("Customer History", "Search service history by registration.", "🔍")
+
+        st.markdown("<div class='section-title'>Today Entries</div>", unsafe_allow_html=True)
         st.dataframe(today_df, use_container_width=True)
 
 
@@ -1262,6 +1492,22 @@ def page_upload_invoice():
             <div><b>Registration</b><br><span style="color:#0f172a;font-weight:900;">{data.get("Registration Number", "")}</span></div>
             <div><b>Bike Model</b><br><span style="color:#0f172a;font-weight:900;">{data.get("Bike Model", "")}</span></div>
             <div><b>Total</b><br><span style="color:#16a34a;font-weight:900;">₹{data.get("Total Amount", 0)}</span></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="bill-preview">
+        <h2>OCR Entry Preview</h2>
+        <div class="subtle">View-only cleaned values. Unwanted OCR data is not saved.</div>
+        <div class="preview-grid">
+            <div class="preview-item"><b>Invoice Number</b><span>{data.get("Invoice Number", "")}</span></div>
+            <div class="preview-item"><b>Registration Number</b><span>{data.get("Registration Number", "")}</span></div>
+            <div class="preview-item"><b>Bike Model</b><span>{data.get("Bike Model", "")}</span></div>
+            <div class="preview-item"><b>Total Amount</b><span>₹{data.get("Total Amount", 0)}</span></div>
+            <div class="preview-item"><b>Labour Amount</b><span>₹{data.get("Labour Amount", 0)}</span></div>
+            <div class="preview-item"><b>Spare Parts Count</b><span>{data.get("Spare Parts Count", 0)}</span></div>
+            <div class="preview-item"><b>Oil Count</b><span>{data.get("Oil Count", 0)}</span></div>
+            <div class="preview-item"><b>Oil Details</b><span>{data.get("Oil Details", "")}</span></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1509,6 +1755,13 @@ def page_manual_invoice():
         })
 
     labour_amount = st.number_input("Labour Amount", min_value=0.0, value=0.0)
+
+    st.markdown("""
+    <div class="bill-preview">
+        <h2>Live Manual Bill Preview</h2>
+        <div class="subtle">PDF will show title as Manual Bill, serial rows, labour amount and logged-in technician name.</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     if st.button("Generate Manual Bill PDF", use_container_width=True):
         if not reg_no or not bike_model:
