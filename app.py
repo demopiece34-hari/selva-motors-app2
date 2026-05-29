@@ -748,47 +748,23 @@ def generate_manual_bill_pdf(customer_name, reg_no, bike_model, spare_rows, labo
 # LOGIN
 # ============================================================
 def page_login():
-    st.markdown(f"<div class='app-title'>🏍️ {APP_TITLE}</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='version-badge'>{VERSION_TEXT}</div>", unsafe_allow_html=True)
-    st.caption("All records are stored only in Excel files. MySQL / SQLAlchemy is not used.")
+    st.markdown(f"<div class='app-title'>🏍️ SELVA MOTORS STAFF LOGIN</div>", unsafe_allow_html=True)
 
-    col1, col2 = st.columns([1, 1])
+    st.subheader("🔐 Login")
+    user_id = st.text_input("User ID")
+    password = st.text_input("Password", type="password")
 
-    with col1:
-        st.subheader("🔐 Login")
-        user_id = st.text_input("User ID")
-        password = st.text_input("Password", type="password")
-
-        if st.button("Login", use_container_width=True):
-            user = login_user(user_id, password)
-            if user:
-                st.session_state["logged_in"] = True
-                st.session_state["user_id"] = user["User ID"]
-                st.session_state["employee_name"] = user["Employee Name"]
-                st.session_state["role"] = user["Role"]
-                st.success("Login success")
-                st.rerun()
-            else:
-                st.error("Invalid login")
-
-    with col2:
-        st.info("""
-Demo Login
-
-Admin:
-admin / admin123
-
-Manager:
-manager / manager123
-
-Technician:
-mohan / mohan
-ajay / ajay
-vengadesh / vengadesh
-
-Prathisha / System Staff:
-prathisha / prathisha
-        """)
+    if st.button("Login", use_container_width=True):
+        user = login_user(user_id, password)
+        if user:
+            st.session_state["logged_in"] = True
+            st.session_state["user_id"] = user["User ID"]
+            st.session_state["employee_name"] = user["Employee Name"]
+            st.session_state["role"] = user["Role"]
+            st.success("Login success")
+            st.rerun()
+        else:
+            st.error("Invalid login")
 
 
 def menu_page():
@@ -801,7 +777,7 @@ def menu_page():
 
     if is_admin():
         pages = [
-            "Dashboard", "Attendance", "Upload Invoice", "Reports", "Search",
+            "Dashboard", "Reports", "Search",
             "Customer Service History", "Manual Invoice Generator", "Admin Panel"
         ]
     elif is_manager():
@@ -1096,28 +1072,91 @@ def page_reports():
 
     invoices = read_sheet("invoices")
 
+    if invoices.empty:
+        st.info("No invoice entries found.")
+        return
+
+    invoices["Total Amount"] = pd.to_numeric(invoices["Total Amount"], errors="coerce").fillna(0)
+    invoices["Labour Amount"] = pd.to_numeric(invoices["Labour Amount"], errors="coerce").fillna(0)
+
     if is_technician():
         invoices = invoices[
             (invoices["User ID"].astype(str) == st.session_state.get("user_id", "")) &
             (invoices["Date"].astype(str) == today_str())
         ]
-        st.info("Technician can view only today’s own entries.")
+        st.info("Technician view: only today’s own entries are shown.")
+
+    else:
+        view_type = st.radio(
+            "Report View Type",
+            ["All Technicians", "Particular Technician"],
+            horizontal=True
+        )
+
+        if view_type == "Particular Technician":
+            tech_names = sorted([
+                x for x in invoices["Technician Name"].astype(str).unique().tolist()
+                if x.strip()
+            ])
+            selected_tech = st.selectbox("Select Technician", tech_names)
+            invoices = invoices[invoices["Technician Name"].astype(str) == selected_tech]
+        else:
+            st.info("All technician entries are shown.")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            date_filter = st.text_input("Date Filter DD-MM-YYYY", value="")
+        with c2:
+            reg_filter = st.text_input("Registration Number Filter", value="")
+
+        if date_filter.strip():
+            invoices = invoices[invoices["Date"].astype(str) == date_filter.strip()]
+
+        if reg_filter.strip():
+            reg_clean = clean_reg_no(reg_filter)
+            invoices = invoices[invoices["Registration Number"].astype(str).str.upper() == reg_clean]
 
     st.subheader("Report Preview")
+
     show_cols = [
         "Technician Name", "Date", "Registration Number",
         "Bike Model", "Labour Amount", "Total Amount", "Entry Type", "Status"
     ]
-    st.dataframe(invoices[show_cols] if not invoices.empty else invoices, use_container_width=True)
 
-    if st.button("Generate Report", use_container_width=True):
+    preview = invoices[show_cols] if not invoices.empty else invoices
+    st.dataframe(preview, use_container_width=True)
+
+    total_entries = len(invoices)
+    total_revenue = invoices["Total Amount"].sum() if "Total Amount" in invoices.columns else 0
+    total_labour = invoices["Labour Amount"].sum() if "Labour Amount" in invoices.columns else 0
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Vehicle Entries", total_entries)
+    c2.metric("Total Revenue", f"₹{total_revenue:,.0f}")
+    c3.metric("Labour Amount", f"₹{total_labour:,.0f}")
+
+    st.divider()
+
+    if st.button("Generate PDF Report", use_container_width=True):
         pdf = generate_report_pdf(
             invoices,
             "Selva Motors Service Report",
             "selva_motors_service_report.pdf"
         )
-        with open(pdf, "rb") as f:
-            st.download_button("Download Generated Report PDF", f, file_name=Path(pdf).name, mime="application/pdf")
+        st.session_state["generated_report_pdf"] = pdf
+        st.success("PDF report generated. Click download below.")
+
+    if st.session_state.get("generated_report_pdf"):
+        pdf_path = st.session_state["generated_report_pdf"]
+        if Path(pdf_path).exists():
+            with open(pdf_path, "rb") as f:
+                st.download_button(
+                    "Download PDF Report",
+                    f,
+                    file_name=Path(pdf_path).name,
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
 
 # ============================================================
@@ -1160,8 +1199,10 @@ def page_customer_service_history():
             (invoices["Date"].astype(str) == today) &
             (invoices["User ID"].astype(str) == st.session_state.get("user_id", ""))
         ]
+        st.info("Technician view: your today entries only.")
     else:
         today_entries = invoices[invoices["Date"].astype(str) == today]
+        st.info("Admin/Manager view: all today's service entries are shown.")
 
     st.subheader("Today’s Service Entry History")
     st.dataframe(today_entries, use_container_width=True)
