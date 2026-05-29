@@ -16,7 +16,6 @@ import streamlit as st
 import plotly.express as px
 from PIL import Image
 
-from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 import pdfplumber
