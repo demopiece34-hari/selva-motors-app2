@@ -16,7 +16,6 @@ import streamlit as st
 import plotly.express as px
 from PIL import Image
 
-from sqlalchemy.exc import SQLAlchemyError
 
 import pdfplumber
 from PyPDF2 import PdfReader
