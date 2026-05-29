@@ -1243,6 +1243,42 @@ def metric_card(title, value, caption=""):
     """, unsafe_allow_html=True)
 
 
+
+# ============================================================
+# HERO EXTREME UI HELPERS
+# ============================================================
+def hero_badge(text):
+    return f"<span class='status-chip'>⚡ {text}</span>" if text else ""
+
+
+def page_hero(title, subtitle, chip=""):
+    st.markdown(f"""
+    <div class="hero-panel">
+        {hero_badge(chip)}
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def quick_card(title, body, icon="✨"):
+    st.markdown(f"""
+    <div class="quick-card">
+        <h3>{icon} {title}</h3>
+        <p>{body}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def preview_item(label, value):
+    st.markdown(f"""
+    <div class="preview-item">
+        <b>{label}</b>
+        <span>{value}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 # ============================================================
 # DASHBOARD
 # ============================================================
