@@ -1438,25 +1438,30 @@ def extract_genuine_spare_details(text):
 
 
 def detect_oil(text):
-    oil_lines = []
+    """
+    Detect oil internally but do not save/show oil item names.
+    Supports:
+    SPDMCYL09SS-HERO 4T PLUS 10W30 SL MA2(1000 ML)
+    SPDSCOT01SS-HERO 4T PLUS 10W30 SL MB(800 ML)
+    """
+    if not text:
+        return 0, "-"
 
-    for line in text.splitlines():
-        if re.search(r"Hero\s*4T\s*PLUS|engine\s*oil|\boil\b", line, flags=re.I):
-            if not re.search(r"policy|consent|whatsapp|marketing", line, flags=re.I):
-                oil_lines.append(line.strip())
+    flat = re.sub(r"\s+", " ", text).upper()
+    oil_patterns = [
+        r"HERO\s*4T\s*PLUS",
+        r"SPDMCYL09SS\s*-\s*HERO\s*4T",
+        r"SPDSCOT01SS\s*-\s*HERO\s*4T",
+        r"10W30\s*SL\s*MA2",
+        r"10W30\s*SL\s*MB",
+        r"ENGINE\s*OIL"
+    ]
 
-    if re.search(r"Hero\s*4T\s*PLUS", text, flags=re.I) and not any(re.search(r"Hero\s*4T\s*PLUS", x, flags=re.I) for x in oil_lines):
-        oil_lines.append("Hero 4T PLUS")
+    for pat in oil_patterns:
+        if re.search(pat, flat, flags=re.I):
+            return 1, "-"
 
-    clean_lines = []
-    seen = set()
-    for line in oil_lines:
-        key = line.lower()
-        if key not in seen:
-            clean_lines.append(line)
-            seen.add(key)
-
-    return len(clean_lines), "; ".join(clean_lines[:5]) if clean_lines else "-"
+    return 0, "-"
 
 
 def section_amount(section):
@@ -1586,36 +1591,10 @@ def normalize_invoice_jobcard_no(value):
 
 def duplicate_exists(job_card_no, reg_no=None, total_amount=None):
     """
-    Duplicate rule:
-    First Excel sheet-la invoices sheet check pannum.
-    Only Job Card Number exact full same irundha mattum duplicate.
-
-    67381-03-RJC-0526-328 == 67381-03-RJC-0526-328 -> duplicate
-    67381-03-RJC-0526-328 != 67381-03-RJC-0526-329 -> not duplicate
-
-    Invoice Number compare pannaadhu.
-    Pending approval sheet compare pannaadhu.
-    Blank/invalid rows ignore pannum.
+    Upload duplicate blocking removed.
+    Manager will find and delete duplicate Job Card uploads later.
     """
-    new_no = normalize_invoice_jobcard_no(job_card_no)
-    if not new_no:
-        return False
-
-    try:
-        inv = read_sheet("invoices")
-    except Exception:
-        return False
-
-    if inv.empty or "Job Card Number" not in inv.columns:
-        return False
-
-    existing = inv["Job Card Number"].astype(str).apply(normalize_invoice_jobcard_no)
-    existing = existing[existing.astype(str).str.len() > 0]
-
-    if existing.empty:
-        return False
-
-    return bool((existing == new_no).any())
+    return False
 
 
 def get_existing_jobcards_list():
@@ -2084,7 +2063,7 @@ def menu_page():
     elif is_manager():
         pages = [
             "Dashboard", "Attendance", "Upload Invoice", "Reports", "Search",
-            "Customer Service History", "Manual Invoice Generator", "Manager Edit"
+            "Customer Service History", "Manual Invoice Generator", "Duplicate Upload Finder", "Manager Edit"
         ]
     elif is_technician():
         pages = [
@@ -2106,6 +2085,7 @@ def menu_page():
         "Customer Service History": "🧾",
         "Manual Invoice Generator": "🧾",
         "Admin Panel": "⚙️",
+        "Duplicate Upload Finder": "🔁",
         "Manager Edit": "✏️",
         "Delete Invoice Request": "🗑️",
     }
@@ -2405,7 +2385,7 @@ def page_attendance():
 # ============================================================
 def page_upload_invoice():
     page_hero("AI Invoice OCR Upload", "Upload invoice, verify clean view-only preview, then proceed the entry.", "OCR")
-    st.caption("OCR Preview is view-only. Duplicate invoice number will go to Admin approval request.")
+    st.caption("OCR Preview is view-only. Duplicate blocking removed. Manager can find/delete duplicates later.")
 
     uploaded = st.file_uploader("Upload Invoice PDF / Image", type=["pdf", "jpg", "jpeg", "png", "webp"], key="invoice_uploader")
 
@@ -2481,11 +2461,11 @@ def page_upload_invoice():
         st.info("Preview is view-only as per requirement. Upload a clearer invoice if values are missing.")
 
     job_card_clean = normalize_invoice_jobcard_no(data.get("Job Card Number", ""))
-    duplicate = duplicate_exists(job_card_clean) if job_card_clean else False
+    duplicate = False
 
     st.caption("Excel Job Card Check: App checks existing invoices sheet first. Duplicate shows only if same full Job Card Number already exists.")
 
-    if duplicate:
+    if False and duplicate:
         st.markdown(f"""
         <div class="approve-box">
             <h3 style="margin:0;color:#991b1b;">Duplicate Job Card Detected</h3>
@@ -2496,14 +2476,6 @@ def page_upload_invoice():
         </div>
         """, unsafe_allow_html=True)
 
-    if is_admin() or is_manager():
-        with st.expander("Duplicate Debug - Job Card Exact Compare"):
-            inv_debug = read_sheet("invoices")
-            st.write("New Job Card Number:", job_card_clean)
-            if "Invoice Number" in inv_debug.columns:
-                existing_clean = inv_debug["Job Card Number"].astype(str).apply(normalize_invoice_jobcard_no) if "Job Card Number" in inv_debug.columns else pd.Series([])
-                st.write("Existing stored job card numbers:", existing_clean[existing_clean.astype(str).str.len() > 0].tolist())
-            st.write("Duplicate result:", duplicate)
 
     if st.button("Click to Proceed the Entry", use_container_width=True):
         if missing:
@@ -2512,7 +2484,7 @@ def page_upload_invoice():
 
         with st.spinner("Please wait... Entry processing. Do not upload another file."):
             final_job_card_no = normalize_invoice_jobcard_no(data.get("Job Card Number", ""))
-            final_duplicate = duplicate_exists(final_job_card_no) if final_job_card_no else False
+            final_duplicate = False
 
             if final_duplicate:
                 request_id = create_pending_invoice_request(data)
@@ -3217,6 +3189,96 @@ def page_admin_panel():
         elif pwd:
             st.error("Wrong password.")
 
+
+# ============================================================
+# MANAGER DUPLICATE UPLOAD FINDER
+# ============================================================
+def find_duplicate_upload_rows():
+    df = read_sheet("invoices")
+    if df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    work = df.copy()
+    if "Job Card Number" not in work.columns:
+        work["Job Card Number"] = ""
+
+    work["_clean_jobcard"] = work["Job Card Number"].astype(str).apply(normalize_invoice_jobcard_no)
+    work = work[work["_clean_jobcard"].astype(str).str.len() > 0].copy()
+
+    if work.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    dup_rows = work[work.duplicated("_clean_jobcard", keep=False)].copy()
+    if dup_rows.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    summary = (
+        dup_rows.groupby("_clean_jobcard")
+        .size()
+        .reset_index(name="Duplicate Count")
+        .rename(columns={"_clean_jobcard": "Job Card Number"})
+    )
+    dup_rows["Excel Row Number"] = dup_rows.index + 2
+    return summary, dup_rows
+
+
+def page_duplicate_upload_finder():
+    page_hero("Duplicate Upload Finder", "Manager can find duplicate Job Card uploads and delete selected rows directly from Excel.", "Manager")
+
+    if not is_manager():
+        st.error("Manager access only.")
+        return
+
+    st.warning("This page directly deletes selected duplicate invoice rows from Excel. Use carefully.")
+
+    summary, dup_rows = find_duplicate_upload_rows()
+
+    if summary.empty:
+        st.success("No duplicate Job Card uploads found.")
+        return
+
+    st.subheader("Duplicate Job Card Summary")
+    st.dataframe(summary, use_container_width=True)
+
+    st.subheader("Duplicate Invoice Rows")
+    show_cols = [
+        "Excel Row Number", "Entry ID", "Date", "Technician Name", "User ID",
+        "Invoice Number", "Job Card Number", "Registration Number", "Bike Model",
+        "Labour Amount", "Spare Parts Count", "Oil Change Status", "Total Amount",
+        "Entry Type", "Status"
+    ]
+    show_cols = [c for c in show_cols if c in dup_rows.columns]
+    st.dataframe(dup_rows[show_cols], use_container_width=True)
+
+    st.divider()
+    st.subheader("Delete Duplicate Row")
+
+    selected_index = st.selectbox(
+        "Select duplicate row to delete",
+        dup_rows.index.tolist(),
+        format_func=lambda i: f"Excel Row {i+2} | Job Card: {dup_rows.loc[i, 'Job Card Number']} | Reg: {dup_rows.loc[i, 'Registration Number']}"
+    )
+
+    st.dataframe(dup_rows.loc[[selected_index], show_cols], use_container_width=True)
+
+    confirm = st.text_input("Type DELETE to confirm direct Excel delete", key="manager_duplicate_delete_confirm")
+
+    if st.button("Delete Selected Duplicate Row from Excel", use_container_width=True):
+        if confirm != "DELETE":
+            st.error("Type DELETE exactly to confirm.")
+            return
+
+        df = read_sheet("invoices")
+        if selected_index not in df.index:
+            st.error("Selected row not found. Refresh and try again.")
+            return
+
+        df = df.drop(index=selected_index).reset_index(drop=True)
+        write_sheet("invoices", df)
+        st.success("Selected duplicate row deleted directly from Excel.")
+        st.rerun()
+
+
 # ============================================================
 # MANAGER EDIT
 # ============================================================
@@ -3298,6 +3360,11 @@ def main():
             page_admin_panel()
         else:
             st.error("Admin access only.")
+    elif page == "Duplicate Upload Finder":
+        if is_manager():
+            page_duplicate_upload_finder()
+        else:
+            st.error("Manager access only.")
     elif page == "Manager Edit":
         if is_manager():
             page_manager_edit()
