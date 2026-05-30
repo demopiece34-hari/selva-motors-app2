@@ -673,7 +673,7 @@ SHEETS = {
     ],
     "invoices": [
         "Entry ID", "Date", "Technician Name", "User ID",
-        "Invoice Number", "Registration Number", "Bike Model",
+        "Invoice Number", "Job Card Number", "Registration Number", "Bike Model",
         "Labour Amount", "Spare Parts Count", "Oil Count", "Oil Details",
         "Total Amount", "Entry Type", "Status"
     ],
@@ -683,7 +683,7 @@ SHEETS = {
     ],
     "pending_invoice_requests": [
         "Request ID", "Date", "Time", "Technician Name", "User ID",
-        "Invoice Number", "Registration Number", "Bike Model",
+        "Invoice Number", "Job Card Number", "Registration Number", "Bike Model",
         "Labour Amount", "Spare Parts Count", "Oil Count", "Oil Details",
         "Total Amount", "Entry Type", "Request Status", "Admin Action Date"
     ],
@@ -1527,11 +1527,10 @@ def parse_invoice(text):
         r"Bill\s*(?:No|Number)?\s*[:\-]?\s*([A-Z0-9\-\/]+)"
     ], flat)
 
-    if not invoice_no:
-        invoice_no = find_one([
-            r"Job\s*Card\s*(?:No|Number)?\s*[:\-]?\s*([A-Z0-9\-\/]+)",
-            r"JC\s*(?:No)?\s*[:\-]?\s*([A-Z0-9\-\/]+)"
-        ], flat)
+    job_card_no = find_one([
+        r"Job\s*Card\s*(?:No|Number)?\s*[:\-]?\s*([A-Z0-9\-\/]+)",
+        r"JC\s*(?:No)?\s*[:\-]?\s*([A-Z0-9\-\/]+)"
+    ], flat)
 
     reg_no = find_one([
         r"Vehicle\s*(?:Reg|Registration)?\s*(?:No|Number)?\s*[:\-]?\s*([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{3,4})",
@@ -1556,6 +1555,7 @@ def parse_invoice(text):
     return {
         "Customer Name": clean_customer_name(customer_name),
         "Invoice Number": str(invoice_no or "").strip().upper().replace(" ", ""),
+        "Job Card Number": str(job_card_no or "").strip().upper().replace(" ", ""),
         "Registration Number": clean_reg_no(reg_no),
         "Bike Model": clean_bike_model(bike_model),
         "Labour Amount": extract_labour_total(text),
@@ -1585,21 +1585,20 @@ def normalize_invoice_jobcard_no(value):
     return text
 
 
-def duplicate_exists(invoice_no, reg_no=None, total_amount=None):
+def duplicate_exists(job_card_no, reg_no=None, total_amount=None):
     """
     Duplicate rule:
-    Only full exact Invoice / Job Card number already stored in invoices sheet means duplicate.
+    Invoice No duplicate check venam.
+    Only Job Card Number full exact same irundha mattum duplicate.
 
     Examples:
-    Existing: 67381-03-RJC-0526-328
-    New:      67381-03-RJC-0526-328 -> duplicate
+    Existing Job Card: 67381-03-RJC-0526-328
+    New Job Card:      67381-03-RJC-0526-328 -> duplicate
 
-    Existing: 67381-03-RJC-0526-328
-    New:      67381-03-RJC-0526-329 -> not duplicate
-
-    Blank existing rows and blank new values are ignored.
+    Existing Job Card: 67381-03-RJC-0526-328
+    New Job Card:      67381-03-RJC-0526-329 -> not duplicate
     """
-    new_no = normalize_invoice_jobcard_no(invoice_no)
+    new_no = normalize_invoice_jobcard_no(job_card_no)
     if not new_no:
         return False
 
@@ -1608,16 +1607,18 @@ def duplicate_exists(invoice_no, reg_no=None, total_amount=None):
     except Exception:
         return False
 
-    if inv.empty or "Invoice Number" not in inv.columns:
+    if inv.empty:
+        return False
+
+    if "Job Card Number" not in inv.columns:
         return False
 
     existing_numbers = (
-        inv["Invoice Number"]
+        inv["Job Card Number"]
         .astype(str)
         .apply(normalize_invoice_jobcard_no)
     )
 
-    # Remove blank/invalid rows before exact compare
     existing_numbers = existing_numbers[existing_numbers.astype(str).str.len() > 0]
 
     if existing_numbers.empty:
@@ -1639,6 +1640,7 @@ def create_pending_invoice_request(data):
         "Technician Name": st.session_state.get("employee_name", ""),
         "User ID": st.session_state.get("user_id", ""),
         "Invoice Number": data.get("Invoice Number", ""),
+        "Job Card Number": data.get("Job Card Number", ""),
         "Registration Number": data.get("Registration Number", ""),
         "Bike Model": clean_bike_model(data.get("Bike Model", "")),
         "Labour Amount": data.get("Labour Amount", 0),
@@ -1661,6 +1663,7 @@ def save_invoice_entry_from_data(data, entry_type="OCR Upload"):
         "Technician Name": st.session_state.get("employee_name", data.get("Technician Name", "")),
         "User ID": st.session_state.get("user_id", data.get("User ID", "")),
         "Invoice Number": data.get("Invoice Number", ""),
+        "Job Card Number": data.get("Job Card Number", ""),
         "Registration Number": data.get("Registration Number", ""),
         "Bike Model": clean_bike_model(data.get("Bike Model", "")),
         "Labour Amount": data.get("Labour Amount", 0),
@@ -1712,7 +1715,7 @@ def generate_report_pdf(df, title, file_name):
         elements.append(Spacer(1, 14))
 
         detail_cols = [
-            "Technician Name", "Date", "Registration Number",
+            "Technician Name", "Date", "Job Card Number", "Registration Number",
             "Bike Model", "Labour Amount", "Total Amount", "Entry Type", "Status"
         ]
         show_cols = [c for c in detail_cols if c in df.columns]
@@ -2331,6 +2334,7 @@ def page_upload_invoice():
 
     preview_df = pd.DataFrame([{
         "Invoice Number": data.get("Invoice Number", ""),
+        "Job Card Number": data.get("Job Card Number", ""),
         "Registration Number": data.get("Registration Number", ""),
         "Bike Model": data.get("Bike Model", ""),
         "Labour Amount": data.get("Labour Amount", 0),
@@ -2345,7 +2349,7 @@ def page_upload_invoice():
     st.dataframe(preview_df, use_container_width=True)
 
     missing = []
-    for col in ["Invoice Number", "Registration Number", "Bike Model"]:
+    for col in ["Job Card Number", "Registration Number", "Bike Model"]:
         if not str(data.get(col, "")).strip():
             missing.append(col)
 
@@ -2353,27 +2357,27 @@ def page_upload_invoice():
         st.warning("Missing detected values: " + ", ".join(missing))
         st.info("Preview is view-only as per requirement. Upload a clearer invoice if values are missing.")
 
-    invoice_number_clean = normalize_invoice_jobcard_no(data.get("Invoice Number", ""))
-    duplicate = duplicate_exists(invoice_number_clean) if invoice_number_clean else False
+    job_card_clean = normalize_invoice_jobcard_no(data.get("Job Card Number", ""))
+    duplicate = duplicate_exists(job_card_clean) if job_card_clean else False
 
     if duplicate:
         st.markdown(f"""
         <div class="approve-box">
             <h3 style="margin:0;color:#991b1b;">Duplicate Invoice / Job Card Detected</h3>
             <p style="margin:8px 0 0 0;color:#334155;">
-                Same full number already exists in Excel: <b>{invoice_number_clean}</b><br>
+                Same Job Card Number already exists in Excel: <b>{job_card_clean}</b><br>
                 This entry will not be saved directly. Admin approval request will be created.
             </p>
         </div>
         """, unsafe_allow_html=True)
 
     if is_admin() or is_manager():
-        with st.expander("Duplicate Debug - Exact Compare"):
+        with st.expander("Duplicate Debug - Job Card Exact Compare"):
             inv_debug = read_sheet("invoices")
-            st.write("New invoice/jobcard number:", invoice_number_clean)
+            st.write("New Job Card Number:", job_card_clean)
             if "Invoice Number" in inv_debug.columns:
-                existing_clean = inv_debug["Invoice Number"].astype(str).apply(normalize_invoice_jobcard_no)
-                st.write("Existing stored numbers:", existing_clean[existing_clean.astype(str).str.len() > 0].tolist())
+                existing_clean = inv_debug["Job Card Number"].astype(str).apply(normalize_invoice_jobcard_no) if "Job Card Number" in inv_debug.columns else pd.Series([])
+                st.write("Existing stored job card numbers:", existing_clean[existing_clean.astype(str).str.len() > 0].tolist())
             st.write("Duplicate result:", duplicate)
 
     if st.button("Click to Proceed the Entry", use_container_width=True):
@@ -2382,8 +2386,8 @@ def page_upload_invoice():
             return
 
         with st.spinner("Please wait... Entry processing. Do not upload another file."):
-            final_invoice_no = normalize_invoice_jobcard_no(data.get("Invoice Number", ""))
-            final_duplicate = duplicate_exists(final_invoice_no) if final_invoice_no else False
+            final_job_card_no = normalize_invoice_jobcard_no(data.get("Job Card Number", ""))
+            final_duplicate = duplicate_exists(final_job_card_no) if final_job_card_no else False
 
             if final_duplicate:
                 request_id = create_pending_invoice_request(data)
@@ -2750,7 +2754,8 @@ def page_admin_panel():
                 <div class="approval-card">
                     <h3>Duplicate Approval Request {status_badge("Pending", "yellow")}</h3>
                     <p><b>Request ID:</b> {pir_row['Request ID']}</p>
-                    <p><b>Invoice / Job Card No:</b> {pir_row['Invoice Number']}</p>
+                    <p><b>Invoice No:</b> {pir_row['Invoice Number']}</p>
+                    <p><b>Job Card No:</b> {pir_row.get('Job Card Number', '')}</p>
                     <p><b>Technician:</b> {pir_row['Technician Name']}</p>
                     <p><b>Vehicle:</b> {pir_row['Registration Number']} | {pir_row['Bike Model']}</p>
                     <p><b>Total:</b> ₹{pir_row['Total Amount']}</p>
