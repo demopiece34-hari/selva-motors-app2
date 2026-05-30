@@ -683,6 +683,159 @@ hr {
     }
 }
 
+
+/* ===== SELVA MOTORS PREMIUM DESIGN V2 ===== */
+.stApp {
+    background:
+        radial-gradient(circle at 2% 2%, rgba(34,197,94,.17), transparent 28%),
+        radial-gradient(circle at 98% 0%, rgba(239,68,68,.10), transparent 25%),
+        linear-gradient(135deg, #f8fafc 0%, #eef2ff 45%, #f0fdf4 100%);
+}
+.block-container {
+    padding-top: 1rem;
+    max-width: 1450px;
+}
+[data-testid="stSidebar"] {
+    background:
+        radial-gradient(circle at 50% 0%, rgba(34,197,94,.20), transparent 35%),
+        linear-gradient(180deg, #020617, #0f172a 60%, #052e16);
+    border-right: 1px solid rgba(255,255,255,.08);
+}
+[data-testid="stSidebar"] * {
+    color: #e5e7eb;
+}
+[data-testid="stSidebar"] .stRadio label {
+    border-radius: 16px;
+    margin: 6px 0;
+    padding: 8px;
+    background: rgba(255,255,255,.045);
+    border: 1px solid rgba(255,255,255,.08);
+}
+[data-testid="stSidebar"] .stRadio label:hover {
+    background: rgba(34,197,94,.18);
+    border-color: rgba(34,197,94,.42);
+}
+.hero-panel {
+    border-radius: 30px !important;
+    box-shadow: 0 24px 60px rgba(15,23,42,.22) !important;
+}
+.premium-title-card {
+    padding: 20px;
+    border-radius: 26px;
+    background: linear-gradient(135deg, #111827, #052e16);
+    color: white;
+    box-shadow: 0 20px 45px rgba(15,23,42,.20);
+    margin-bottom: 18px;
+}
+.premium-title-card h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 900;
+}
+.premium-title-card p {
+    margin: 7px 0 0 0;
+    color: #cbd5e1;
+    font-size: 13px;
+}
+.erp-card-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin: 15px 0 20px 0;
+}
+.erp-card {
+    background: rgba(255,255,255,.95);
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: 24px;
+    padding: 18px;
+    box-shadow: 0 16px 38px rgba(15,23,42,.08);
+    position: relative;
+    overflow: hidden;
+}
+.erp-card:after {
+    content: "";
+    position: absolute;
+    height: 90px;
+    width: 90px;
+    right: -34px;
+    top: -34px;
+    border-radius: 999px;
+    background: rgba(34,197,94,.13);
+}
+.erp-card small {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+.erp-card h3 {
+    color: #0f172a;
+    font-size: 25px;
+    font-weight: 900;
+    margin: 7px 0 0 0;
+}
+.erp-card span {
+    color: #16a34a;
+    font-size: 12px;
+    font-weight: 800;
+}
+.professional-panel {
+    background: rgba(255,255,255,.94);
+    border: 1px solid #e2e8f0;
+    border-radius: 24px;
+    padding: 18px;
+    box-shadow: 0 14px 34px rgba(15,23,42,.08);
+    margin: 12px 0 18px 0;
+}
+.professional-panel h3 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    font-weight: 900;
+    color: #0f172a;
+}
+.status-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 10px 0;
+}
+.status-pill {
+    padding: 7px 11px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+}
+.status-ok { background:#dcfce7; color:#166534; }
+.status-warn { background:#fef3c7; color:#92400e; }
+.status-danger { background:#fee2e2; color:#991b1b; }
+.status-info { background:#dbeafe; color:#1e40af; }
+.cloud-excel-head {
+    background: linear-gradient(135deg, #ffffff, #ecfdf5) !important;
+    border: 1px solid #bbf7d0 !important;
+    box-shadow: 0 18px 44px rgba(15,23,42,.09) !important;
+}
+.stButton > button {
+    border-radius: 15px !important;
+    font-weight: 900 !important;
+    min-height: 42px;
+}
+.stDownloadButton > button {
+    border-radius: 15px !important;
+    font-weight: 900 !important;
+}
+[data-testid="stDataFrame"] {
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 12px 32px rgba(15,23,42,.08);
+}
+[data-testid="stTabs"] button {
+    font-weight: 900 !important;
+    border-radius: 12px 12px 0 0 !important;
+}
+@media (max-width: 900px) {
+    .erp-card-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -2025,8 +2178,8 @@ def page_login():
                     <p>SERVICE ERP</p>
                 </div>
             </div>
-            <div style="font-size:26px;font-weight:900;color:#0f172a;margin-top:8px;">Staff Login Portal</div>
-            <div class="subtle">Premium service management dashboard for attendance, invoice entry, reports and manual bill workflow.</div>
+            <div style="font-size:26px;font-weight:900;color:#0f172a;margin-top:8px;">Selva Motors ERP Login</div>
+            <div class="subtle">Professional cloud Excel service management dashboard for attendance, invoice entry, reports and manual bill workflow.</div>
             <div class="feature-strip">
                 <div class="feature-pill">Excel Storage</div>
                 <div class="feature-pill">Role Based</div>
@@ -2205,6 +2358,36 @@ def status_badge(text, kind="green"):
         "blue": "badge-blue"
     }.get(kind, "badge-green")
     return f"<span class='{cls}'>{text}</span>"
+
+
+
+def erp_card(label, value, note="", icon=""):
+    st.markdown(f"""
+    <div class="erp-card">
+        <small>{icon} {label}</small>
+        <h3>{value}</h3>
+        <span>{note}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def premium_panel(title, subtitle=""):
+    st.markdown(f"""
+    <div class="premium-title-card">
+        <h2>{title}</h2>
+        <p>{subtitle}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def status_pill(text, kind="ok"):
+    cls = {
+        "ok": "status-ok",
+        "warn": "status-warn",
+        "danger": "status-danger",
+        "info": "status-info"
+    }.get(kind, "status-ok")
+    return f"<span class='status-pill {cls}'>{text}</span>"
 
 
 # ============================================================
@@ -2851,7 +3034,7 @@ def admin_editable_columns(sheet_name):
 
 
 def admin_excel_data_manager():
-    st.subheader("Cloud Excel Data View / Edit / Delete")
+    st.markdown("<div class='premium-title-card'><h2>Cloud Excel Manager Pro</h2><p>View, edit, add, delete and download cloud Excel data safely.</p></div>", unsafe_allow_html=True)
     st.caption("Streamlit Cloud-la save aagura Excel sheet data inga view pannalam. Edit/Delete panna password required.")
 
     if st.button("Refresh Cloud Excel Data", use_container_width=True, key="refresh_cloud_excel_data"):
@@ -2866,6 +3049,17 @@ def admin_excel_data_manager():
 
     # Always re-read sheet fresh after each action
     df = read_sheet(sheet_name).reset_index(drop=True)
+
+    # Selected sheet summary cards
+    st.markdown(f"""
+    <div class="erp-card-grid">
+        <div class="erp-card"><small>📁 Sheet</small><h3>{sheet_name}</h3><span>Selected worksheet</span></div>
+        <div class="erp-card"><small>📊 Rows</small><h3>{len(df)}</h3><span>Current records</span></div>
+        <div class="erp-card"><small>🧾 Columns</small><h3>{len(df.columns)}</h3><span>Visible fields</span></div>
+        <div class="erp-card"><small>🔒 Mode</small><h3>Protected</h3><span>Password required</span></div>
+    </div>
+    """, unsafe_allow_html=True)
+
 
     st.markdown(f"""
     <div class="cloud-excel-head">
@@ -3018,11 +3212,28 @@ def admin_excel_data_manager():
 def page_admin_panel():
     page_hero("Admin Panel", "Cloud Excel control center: revenue, employees, delete requests, data manager and settings.", "Admin")
 
+    premium_panel("Admin Control Center", "Clean admin access: reports, customer history, cloud Excel manager, employee control and settings.")
+
     invoices = read_sheet("invoices")
     if "Total Amount" in invoices.columns:
         invoices["Total Amount"] = pd.to_numeric(invoices["Total Amount"], errors="coerce").fillna(0)
     else:
         invoices["Total Amount"] = 0
+
+    total_invoice_rows = len(invoices)
+    total_amount_sum = invoices["Total Amount"].sum() if "Total Amount" in invoices.columns else 0
+
+    st.markdown(f"""
+    <div class="professional-panel">
+        <h3>Admin Quick Status</h3>
+        <div class="status-row">
+            {status_pill("Duplicate Approval Hidden", "info")}
+            {status_pill("Manual Invoice Hidden", "info")}
+            {status_pill("Cloud Excel Edit Enabled", "ok")}
+            {status_pill("Rows: " + str(total_invoice_rows), "warn")}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     tabs = st.tabs([
         "📊 Revenue",
