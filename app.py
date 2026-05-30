@@ -1062,7 +1062,7 @@ def sync_single_excel_sheet_to_google_sheet(sheet_name):
 
 
 
-def load_sync_state():
+def load_google_sync_state():
     try:
         if SYNC_STATE_FILE.exists():
             return json.loads(SYNC_STATE_FILE.read_text(encoding="utf-8"))
@@ -1087,7 +1087,7 @@ def save_sync_state(state):
 
 
 def mark_sheet_dirty(sheet_name):
-    state = load_sync_state()
+    state = load_google_sync_state()
     dirty = set(state.get("dirty_sheets", []))
     dirty.add(sheet_name)
     state["dirty_sheets"] = sorted(list(dirty))
@@ -1095,8 +1095,8 @@ def mark_sheet_dirty(sheet_name):
     save_sync_state(state)
 
 
-def sync_dirty_sheets_to_google_sheet():
-    state = load_sync_state()
+def sync_changed_sheets_to_google():
+    state = load_google_sync_state()
     dirty_sheets = state.get("dirty_sheets", [])
 
     if not dirty_sheets:
@@ -1135,12 +1135,12 @@ def sync_dirty_sheets_to_google_sheet():
 
 
 
-def get_next_google_sync_wait_text():
+def get_google_next_sync_wait_text():
     """
     Returns readable waiting time for next 3-minute Google Sheet sync.
     """
     try:
-        state = load_sync_state()
+        state = load_google_sync_state()
         dirty_sheets = state.get("dirty_sheets", [])
 
         if not dirty_sheets:
@@ -1167,7 +1167,7 @@ def get_next_google_sync_wait_text():
 
 
 def get_sync_status_badge_text():
-    state = load_sync_state()
+    state = load_google_sync_state()
     dirty_sheets = state.get("dirty_sheets", [])
     status = state.get("last_sync_status", "Not yet")
 
@@ -1186,7 +1186,7 @@ def auto_sync_google_sheet_3min():
     Google Sheet sync runs only once every 3 minutes when app opens/reruns.
     """
     try:
-        state = load_sync_state()
+        state = load_google_sync_state()
         dirty_sheets = state.get("dirty_sheets", [])
 
         if not dirty_sheets:
@@ -1199,14 +1199,14 @@ def auto_sync_google_sheet_3min():
         if now_ts - last_sync_ts < sync_interval:
             return
 
-        sync_dirty_sheets_to_google_sheet()
+        sync_changed_sheets_to_google()
 
     except Exception:
         pass
 
 
 
-def sync_excel_to_google_sheet():
+def sync_all_excel_to_google():
     """
     Copies all local Excel sheets to Google Sheet.
     This does not replace Excel storage. It is only a manual cloud backup.
@@ -3211,6 +3211,209 @@ def admin_excel_data_manager():
     else:
         st.warning("Excel file not created yet.")
 
+
+# ============================================================
+# GOOGLE SHEET 3-MIN AUTO SYNC HELPERS
+# ============================================================
+def is_google_sync_configured():
+    return bool(st.secrets.get("SHEET_ID", "")) and ("gcp_service_account" in st.secrets)
+
+
+def google_sync_state_default():
+    return {
+        "dirty_sheets": [],
+        "last_sync_ts": 0,
+        "last_sync_time": "Not yet",
+        "last_sync_status": "Not yet",
+        "last_sync_message": "",
+        "last_change_time": "Not yet"
+    }
+
+
+def load_google_sync_state():
+    try:
+        if SYNC_STATE_FILE.exists():
+            import json
+            return json.loads(SYNC_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return google_sync_state_default()
+
+
+def save_google_sync_state(state):
+    try:
+        import json
+        SYNC_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def mark_google_sheet_dirty(sheet_name):
+    state = load_google_sync_state()
+    dirty = set(state.get("dirty_sheets", []))
+    dirty.add(sheet_name)
+    state["dirty_sheets"] = sorted(list(dirty))
+    state["last_change_time"] = datetime.now().strftime("%d-%m-%Y %I:%M:%S %p")
+    save_google_sync_state(state)
+
+
+def get_google_next_sync_wait_text():
+    state = load_google_sync_state()
+    dirty_sheets = state.get("dirty_sheets", [])
+    if not dirty_sheets:
+        return "No pending sync"
+
+    last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
+    if last_sync_ts == 0:
+        return "Ready to sync now"
+
+    now_ts = datetime.now().timestamp()
+    interval = 3 * 60
+    remaining = int(interval - (now_ts - last_sync_ts))
+    if remaining <= 0:
+        return "Ready to sync now"
+
+    minutes = remaining // 60
+    seconds = remaining % 60
+    return f"{minutes} min {seconds} sec remaining"
+
+
+def google_sheet_client_for_sync():
+    if gspread is None or Credentials is None:
+        return None, "gspread/google-auth missing in requirements.txt"
+
+    if not is_google_sync_configured():
+        return None, "SHEET_ID or gcp_service_account missing in Streamlit Secrets"
+
+    try:
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=scope
+        )
+        client = gspread.authorize(creds)
+        return client, ""
+    except Exception as e:
+        return None, str(e)
+
+
+def get_or_create_google_worksheet(spreadsheet, sheet_name, rows=1000, cols=30):
+    try:
+        return spreadsheet.worksheet(sheet_name)
+    except Exception:
+        return spreadsheet.add_worksheet(title=sheet_name, rows=rows, cols=cols)
+
+
+def sync_one_sheet_to_google(sheet_name):
+    client, err = google_sheet_client_for_sync()
+    if client is None:
+        return False, err
+
+    try:
+        spreadsheet = client.open_by_key(st.secrets["SHEET_ID"])
+        df = read_sheet(sheet_name).fillna("").astype(str)
+        ws = get_or_create_google_worksheet(
+            spreadsheet,
+            sheet_name,
+            rows=max(len(df) + 20, 100),
+            cols=max(len(df.columns) + 5, 20)
+        )
+        ws.clear()
+        values = [df.columns.tolist()] + df.values.tolist()
+        ws.update(values)
+        return True, f"{sheet_name} synced"
+    except Exception as e:
+        return False, str(e)
+
+
+def sync_changed_sheets_to_google():
+    state = load_google_sync_state()
+    dirty_sheets = state.get("dirty_sheets", [])
+
+    if not dirty_sheets:
+        return True, "No changed sheets to sync."
+
+    if not is_google_sync_configured():
+        return False, "Google Sheet secrets not configured."
+
+    synced = []
+    failed = []
+
+    for sheet_name in dirty_sheets:
+        ok, msg = sync_one_sheet_to_google(sheet_name)
+        if ok:
+            synced.append(sheet_name)
+        else:
+            failed.append(f"{sheet_name}: {msg}")
+
+    now = datetime.now()
+    if failed:
+        state["last_sync_status"] = "Failed"
+        state["last_sync_message"] = "; ".join(failed)[:500]
+        state["last_sync_time"] = now.strftime("%d-%m-%Y %I:%M:%S %p")
+        save_google_sync_state(state)
+        return False, state["last_sync_message"]
+
+    state["dirty_sheets"] = []
+    state["last_sync_ts"] = now.timestamp()
+    state["last_sync_time"] = now.strftime("%d-%m-%Y %I:%M:%S %p")
+    state["last_sync_status"] = "Success"
+    state["last_sync_message"] = "Synced sheets: " + ", ".join(synced)
+    save_google_sync_state(state)
+    return True, state["last_sync_message"]
+
+
+def sync_all_excel_to_google():
+    if not is_google_sync_configured():
+        return False, "Google Sheet secrets not configured."
+
+    synced = []
+    failed = []
+    for sheet_name in SHEETS.keys():
+        ok, msg = sync_one_sheet_to_google(sheet_name)
+        if ok:
+            synced.append(sheet_name)
+        else:
+            failed.append(f"{sheet_name}: {msg}")
+
+    state = load_google_sync_state()
+    now = datetime.now()
+    if failed:
+        state["last_sync_status"] = "Failed"
+        state["last_sync_message"] = "; ".join(failed)[:500]
+        state["last_sync_time"] = now.strftime("%d-%m-%Y %I:%M:%S %p")
+        save_google_sync_state(state)
+        return False, state["last_sync_message"]
+
+    state["dirty_sheets"] = []
+    state["last_sync_ts"] = now.timestamp()
+    state["last_sync_time"] = now.strftime("%d-%m-%Y %I:%M:%S %p")
+    state["last_sync_status"] = "Success"
+    state["last_sync_message"] = "Full sync: " + ", ".join(synced)
+    save_google_sync_state(state)
+    return True, state["last_sync_message"]
+
+
+def auto_sync_google_sheet_3min():
+    try:
+        state = load_google_sync_state()
+        dirty_sheets = state.get("dirty_sheets", [])
+        if not dirty_sheets:
+            return
+
+        last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
+        now_ts = datetime.now().timestamp()
+        interval = 3 * 60
+
+        if last_sync_ts == 0 or now_ts - last_sync_ts >= interval:
+            sync_changed_sheets_to_google()
+    except Exception:
+        pass
+
+
 # ============================================================
 # ADMIN PANEL
 # ============================================================
@@ -3246,6 +3449,7 @@ def page_admin_panel():
         "👥 Employees",
         "🗑️ Delete Requests",
         "📁 Cloud Excel Data",
+        "☁️ Sync Google",
         "⚙️ Settings"
     ])
 
@@ -3356,7 +3560,55 @@ def page_admin_panel():
         st.markdown("<div class='admin-tab-note'>View, edit, add and delete rows from cloud Excel data. Password protected.</div>", unsafe_allow_html=True)
         admin_excel_data_manager()
 
+
     with tabs[4]:
+        st.markdown("<div class='admin-tab-note'>Sync Google: Excel data Google Sheet-ku auto sync 3 minutes once. Manual sync button also available.</div>", unsafe_allow_html=True)
+
+        state = load_google_sync_state()
+        dirty_sheets = state.get("dirty_sheets", [])
+        wait_text = get_google_next_sync_wait_text()
+
+        if is_google_sync_configured():
+            st.success("Google Sheet sync configured.")
+        else:
+            st.warning("Google Sheet sync OFF. SHEET_ID and gcp_service_account secrets required.")
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Auto Sync", "3 mins")
+        c2.metric("Waiting Sheets", len(dirty_sheets))
+        c3.metric("Next Sync", wait_text)
+        c4.metric("Last Sync", state.get("last_sync_time", "Not yet"))
+
+        if dirty_sheets:
+            st.caption("Waiting sheets: " + ", ".join(dirty_sheets))
+        else:
+            st.caption("No pending changes. Google Sheet is updated or no changes made.")
+
+        st.caption("Last status: " + str(state.get("last_sync_status", "Not yet")))
+        if state.get("last_sync_message"):
+            st.caption("Last message: " + str(state.get("last_sync_message", "")))
+
+        c_manual1, c_manual2 = st.columns(2)
+        if c_manual1.button("Manual Sync Changed Sheets Now", use_container_width=True):
+            with st.spinner("Syncing changed sheets to Google Sheet..."):
+                ok, msg = sync_changed_sheets_to_google()
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+            st.rerun()
+
+        if c_manual2.button("Manual Full Sync All Excel Data", use_container_width=True):
+            with st.spinner("Full syncing all sheets to Google Sheet..."):
+                ok, msg = sync_all_excel_to_google()
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+            st.rerun()
+
+
+    with tabs[5]:
         st.markdown("<div class='admin-tab-note'>Settings and password-protected cloud Excel download.</div>", unsafe_allow_html=True)
 
         settings = read_sheet("settings")
@@ -3436,6 +3688,8 @@ def main():
         page_login()
         return
 
+
+    auto_sync_google_sheet_3min()
 
     page = menu_page()
 
