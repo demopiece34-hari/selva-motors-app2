@@ -82,6 +82,33 @@ ALLOWED_RADIUS_METER = 400
 
 
 # ============================================================
+# SAFE STREAMLIT HELPERS
+# ============================================================
+def safe_get_secret(key, default=None):
+    """Read Streamlit secrets safely. Prevents app crash when secrets are not configured."""
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+
+def safe_has_secret(key):
+    try:
+        return key in st.secrets
+    except Exception:
+        return False
+
+
+def app_rerun():
+    """Compatible rerun for old/new Streamlit versions."""
+    try:
+        app_rerun()
+    except AttributeError:
+        st.experimental_rerun()
+
+
+
+# ============================================================
 # STYLE
 # ============================================================
 st.markdown("""
@@ -1080,7 +1107,7 @@ def google_sheet_client():
         return None, "gspread/google-auth not installed. Add gspread and google-auth in requirements.txt"
 
     try:
-        if "gcp_service_account" not in st.secrets:
+        if not safe_has_secret("gcp_service_account"):
             return None, "Streamlit secrets missing: gcp_service_account"
 
         scope = [
@@ -1089,7 +1116,7 @@ def google_sheet_client():
         ]
 
         creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
+            safe_get_secret("gcp_service_account", {}),
             scopes=scope
         )
         client = gspread.authorize(creds)
@@ -1117,7 +1144,7 @@ def is_google_auto_sync_enabled():
     Google Sheet auto store will work only when Streamlit secrets are configured.
     Excel remains primary storage, Google Sheet is automatic cloud copy.
     """
-    return bool(st.secrets.get("SHEET_ID", "")) and ("gcp_service_account" in st.secrets)
+    return bool(safe_get_secret("SHEET_ID", "")) and safe_has_secret("gcp_service_account")
 
 
 def sync_single_excel_sheet_to_google_sheet(sheet_name):
@@ -1129,7 +1156,7 @@ def sync_single_excel_sheet_to_google_sheet(sheet_name):
         return False, "Google Sheet secrets not configured"
 
     try:
-        sheet_id = st.secrets.get("SHEET_ID", "")
+        sheet_id = safe_get_secret("SHEET_ID", "")
         client, err = google_sheet_client()
         if client is None:
             return False, err
@@ -1308,7 +1335,7 @@ def sync_all_excel_to_google():
     if not EXCEL_FILE.exists():
         return False, "Excel file not found. Save some data first."
 
-    sheet_id = st.secrets.get("SHEET_ID", "")
+    sheet_id = safe_get_secret("SHEET_ID", "")
     if not sheet_id:
         return False, "Streamlit secrets missing: SHEET_ID"
 
@@ -1366,7 +1393,7 @@ def login_user(user_id, password):
 
 
 def role():
-    return st.session_state.get("role", "")
+    return str(st.session_state.get("role", "")).strip()
 
 
 def is_admin():
@@ -2293,11 +2320,11 @@ def page_login():
             user = login_user(user_id, password)
             if user:
                 st.session_state["logged_in"] = True
-                st.session_state["user_id"] = user["User ID"]
-                st.session_state["employee_name"] = user["Employee Name"]
-                st.session_state["role"] = user["Role"]
+                st.session_state["user_id"] = str(user["User ID"]).strip()
+                st.session_state["employee_name"] = str(user["Employee Name"]).strip()
+                st.session_state["role"] = str(user["Role"]).strip()
                 st.success("Login success")
-                st.rerun()
+                app_rerun()
             else:
                 st.error("Invalid login")
 
@@ -2328,7 +2355,7 @@ def menu_page():
 
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.clear()
-        st.rerun()
+        app_rerun()
 
     if is_admin():
         pages = [
@@ -2735,7 +2762,7 @@ def page_attendance():
         ok, saved_dist = auto_save_attendance_from_gps(lat, lon)
         if ok:
             st.success(f"Attendance auto-marked successfully. Distance: {saved_dist} meter.")
-            st.rerun()
+            app_rerun()
         else:
             st.error("Attendance auto-save failed.")
     else:
@@ -2866,13 +2893,13 @@ def page_upload_invoice():
                 st.session_state.pop("ocr_preview", None)
                 st.warning(f"Duplicate detected. Admin approval request sent. Request ID: {request_id}")
                 st.info("Invoice will be stored in Excel only after Admin approves.")
-                st.rerun()
+                app_rerun()
             else:
                 save_invoice_entry_from_data(data, entry_type="OCR Upload")
                 processing_wait_3s("Please wait, Excel entry processing")
                 st.session_state.pop("ocr_preview", None)
                 st.success("Entry saved to Excel. Upload preview cleared.")
-                st.rerun()
+                app_rerun()
 
 
 # ============================================================
@@ -3208,7 +3235,7 @@ def admin_excel_data_manager():
 
     if st.button("Refresh Cloud Excel Data", use_container_width=True, key="refresh_cloud_excel_data"):
         st.cache_data.clear()
-        st.rerun()
+        app_rerun()
 
     sheet_name = st.selectbox(
         "Select Excel Sheet",
@@ -3290,7 +3317,7 @@ def admin_excel_data_manager():
             append_row(sheet_name, new_row)
             st.cache_data.clear()
             st.success("New row added to Cloud Excel.")
-            st.rerun()
+            app_rerun()
 
     elif action == "Edit Row":
         if df.empty:
@@ -3328,7 +3355,7 @@ def admin_excel_data_manager():
             write_sheet(sheet_name, fresh_df)
             st.cache_data.clear()
             st.success("Row updated successfully in Cloud Excel.")
-            st.rerun()
+            app_rerun()
 
     elif action == "Delete Row":
         if df.empty:
@@ -3364,7 +3391,7 @@ def admin_excel_data_manager():
             write_sheet(sheet_name, fresh_df)
             st.cache_data.clear()
             st.success("Selected row deleted from Cloud Excel.")
-            st.rerun()
+            app_rerun()
 
     st.divider()
     st.subheader("Download Current Cloud Excel File")
@@ -3386,7 +3413,7 @@ def admin_excel_data_manager():
 # GOOGLE SHEET 3-MIN AUTO SYNC HELPERS
 # ============================================================
 def is_google_sync_configured():
-    return bool(st.secrets.get("SHEET_ID", "")) and ("gcp_service_account" in st.secrets)
+    return bool(safe_get_secret("SHEET_ID", "")) and safe_has_secret("gcp_service_account")
 
 
 def google_sync_state_default():
@@ -3461,7 +3488,7 @@ def google_sheet_client_for_sync():
             "https://www.googleapis.com/auth/drive"
         ]
         creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
+            safe_get_secret("gcp_service_account", {}),
             scopes=scope
         )
         client = gspread.authorize(creds)
@@ -3483,7 +3510,7 @@ def sync_one_sheet_to_google(sheet_name):
         return False, err
 
     try:
-        spreadsheet = client.open_by_key(st.secrets["SHEET_ID"])
+        spreadsheet = client.open_by_key(safe_get_secret("SHEET_ID", ""))
         df = read_sheet(sheet_name).fillna("").astype(str)
         ws = get_or_create_google_worksheet(
             spreadsheet,
@@ -3682,7 +3709,7 @@ def page_admin_panel():
                         })
                         st.success("Employee added.")
                     st.cache_data.clear()
-                    st.rerun()
+                    app_rerun()
 
     with tabs[2]:
         st.markdown("<div class='admin-tab-note'>Technician delete requests. Invoice deletes only after Admin approval.</div>", unsafe_allow_html=True)
@@ -3716,7 +3743,7 @@ def page_admin_panel():
                     write_sheet("delete_requests", req)
                     st.cache_data.clear()
                     st.success("Request approved and invoice deleted.")
-                    st.rerun()
+                    app_rerun()
 
                 if c2.button("Reject Request", key=f"reject_{idx}", use_container_width=True):
                     req.loc[idx, "Request Status"] = "Rejected"
@@ -3724,7 +3751,7 @@ def page_admin_panel():
                     write_sheet("delete_requests", req)
                     st.cache_data.clear()
                     st.warning("Request rejected.")
-                    st.rerun()
+                    app_rerun()
 
     with tabs[3]:
         st.markdown("<div class='admin-tab-note'>View, edit, add and delete rows from cloud Excel data. Password protected.</div>", unsafe_allow_html=True)
@@ -3766,7 +3793,7 @@ def page_admin_panel():
                 st.success(msg)
             else:
                 st.error(msg)
-            st.rerun()
+            app_rerun()
 
         if c_manual2.button("Manual Full Sync All Excel Data", use_container_width=True):
             with st.spinner("Full syncing all sheets to Google Sheet..."):
@@ -3775,7 +3802,7 @@ def page_admin_panel():
                 st.success(msg)
             else:
                 st.error(msg)
-            st.rerun()
+            app_rerun()
 
 
     with tabs[5]:
@@ -3892,29 +3919,4 @@ def page_duplicate_upload_finder():
         except Exception:
             pass
         st.success("Selected duplicate row deleted directly from Excel.")
-        st.rerun()
-
-
-# ============================================================
-# MANAGER EDIT
-# ============================================================
-def page_manager_edit():
-    page_hero("Manager Edit", "Password protected entry status edit options.", "Protected")
-
-    pwd = st.text_input("Enter edit password", type="password")
-    if pwd != SECRET_PASSWORD:
-        if pwd:
-            st.error("Wrong password.")
-        st.info("Manager edit requires password.")
-        return
-
-    st.success("Edit access granted.")
-
-    invoices = read_sheet("invoices")
-    st.dataframe(invoices, use_container_width=True)
-
-    if invoices.empty:
-        return
-
-    entry_id = st.selectbox("Select Entry ID to edit status", invoices["Entry ID"].astype(str).tolist())
-    new_status = st.selectbox("New Status", ["Active", "Hold", "Completed", "Cancelled"])
+        app_rerun()
