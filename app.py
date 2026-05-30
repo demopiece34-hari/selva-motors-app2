@@ -1469,6 +1469,15 @@ def save_invoice_entry_from_data(data, entry_type="OCR Upload"):
     return entry_id
 
 
+
+def processing_wait_3s(message="Processing entry"):
+    box = st.empty()
+    for sec in [3, 2, 1]:
+        box.info(f"{message}... Please wait {sec} seconds.")
+        time.sleep(1)
+    box.empty()
+
+
 # ============================================================
 # REPORT PDF
 # ============================================================
@@ -2113,14 +2122,14 @@ def page_upload_invoice():
         with st.spinner("Please wait... Entry processing. Do not upload another file."):
             if duplicate:
                 request_id = create_pending_invoice_request(data)
-                time.sleep(3)
+                processing_wait_3s("Excel entry processing")
                 st.session_state.pop("ocr_preview", None)
                 st.warning(f"Duplicate detected. Admin approval request sent. Request ID: {request_id}")
                 st.info("Invoice will be stored in Excel only after Admin approves.")
                 st.rerun()
             else:
                 save_invoice_entry_from_data(data, entry_type="OCR Upload")
-                time.sleep(3)
+                processing_wait_3s("Excel entry processing")
                 st.session_state.pop("ocr_preview", None)
                 st.success("Entry saved to Excel. Upload preview cleared.")
                 st.rerun()
@@ -2521,13 +2530,6 @@ def page_admin_panel():
     settings = read_sheet("settings")
     st.dataframe(settings, use_container_width=True)
 
-
-    st.subheader("Google Sheet Backup Status")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Last Backup Date", get_setting_value("Last Auto Backup Date", "Not yet"))
-    c2.metric("Last Backup Time", get_setting_value("Last Auto Backup Time", "Not yet"))
-    c3.metric("Status", get_setting_value("Last Auto Backup Status", "Not yet"))
-    st.caption("Google Sheet sync updates changed sheets automatically every 5 minutes when the app is active.")
 
     st.subheader("5 Minutes Auto Google Sheet Sync Status")
     if is_google_auto_sync_enabled():
