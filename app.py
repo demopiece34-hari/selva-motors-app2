@@ -4,7 +4,7 @@ import io
 import uuid
 import math
 import zipfile
-import time
+import time as time_module
 import json
 from pathlib import Path
 from datetime import datetime, time
@@ -489,6 +489,172 @@ hr {
     .hero-panel h1 { font-size: 24px; }
     .metric-card h2 { font-size: 25px; }
 }
+
+.approve-box h3 {
+    letter-spacing: -.3px;
+}
+.glow-card, .bill-preview, .approve-box {
+    animation: softFadeIn .25s ease-in-out;
+}
+@keyframes softFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+
+/* ===== SELVA MOTORS ULTRA DESIGN PATCH ===== */
+.ultra-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+}
+.ultra-card {
+    background: rgba(255,255,255,.94);
+    border: 1px solid rgba(226,232,240,.95);
+    border-radius: 24px;
+    padding: 18px;
+    box-shadow: 0 18px 42px rgba(15,23,42,.09);
+    position: relative;
+    overflow: hidden;
+}
+.ultra-card:before {
+    content: "";
+    position: absolute;
+    width: 92px;
+    height: 92px;
+    right: -28px;
+    top: -28px;
+    background: rgba(34,197,94,.12);
+    border-radius: 999px;
+}
+.ultra-card .label {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+}
+.ultra-card .value {
+    color: #0f172a;
+    font-size: 25px;
+    font-weight: 900;
+    margin-top: 6px;
+}
+.ultra-card .note {
+    color: #16a34a;
+    font-size: 12px;
+    font-weight: 800;
+    margin-top: 4px;
+}
+.ultra-status {
+    padding: 14px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, #0f172a, #052e16);
+    color: white;
+    box-shadow: 0 18px 40px rgba(15,23,42,.18);
+    margin-bottom: 16px;
+}
+.ultra-status h3 {
+    margin: 0;
+    font-weight: 900;
+    font-size: 18px;
+}
+.ultra-status p {
+    margin: 6px 0 0 0;
+    color: #cbd5e1;
+    font-size: 13px;
+}
+.badge-green, .badge-red, .badge-yellow, .badge-blue {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+}
+.badge-green { background:#dcfce7; color:#166534; }
+.badge-red { background:#fee2e2; color:#991b1b; }
+.badge-yellow { background:#fef3c7; color:#92400e; }
+.badge-blue { background:#dbeafe; color:#1e40af; }
+.invoice-preview-pro {
+    border-radius: 28px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 22px 55px rgba(15,23,42,.11);
+    overflow: hidden;
+    margin-bottom: 18px;
+}
+.invoice-preview-head {
+    background: linear-gradient(135deg, #111827, #16a34a);
+    color: #ffffff;
+    padding: 18px 22px;
+}
+.invoice-preview-head h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 900;
+}
+.invoice-preview-head p {
+    margin: 5px 0 0 0;
+    color: #dcfce7;
+}
+.invoice-preview-body {
+    padding: 18px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+.invoice-field {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 13px;
+}
+.invoice-field b {
+    display: block;
+    color: #64748b;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+.invoice-field span {
+    display: block;
+    margin-top: 5px;
+    color: #0f172a;
+    font-size: 16px;
+    font-weight: 900;
+}
+.approval-card {
+    border-radius: 24px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 16px 36px rgba(15,23,42,.08);
+    padding: 18px;
+    margin-bottom: 14px;
+}
+.approval-card h3 {
+    margin: 0 0 6px 0;
+    color: #111827;
+    font-size: 18px;
+    font-weight: 900;
+}
+.approval-card p {
+    color: #475569;
+    margin: 4px 0;
+}
+.admin-tab-note {
+    background: #f8fafc;
+    border-left: 5px solid #22c55e;
+    padding: 12px 14px;
+    border-radius: 14px;
+    margin: 10px 0 16px 0;
+    color: #334155;
+    font-weight: 700;
+}
+@media (max-width: 900px) {
+    .ultra-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+    .invoice-preview-body { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -1389,7 +1555,7 @@ def parse_invoice(text):
 
     return {
         "Customer Name": clean_customer_name(customer_name),
-        "Invoice Number": invoice_no,
+        "Invoice Number": str(invoice_no or "").strip().upper().replace(" ", ""),
         "Registration Number": clean_reg_no(reg_no),
         "Bike Model": clean_bike_model(bike_model),
         "Labour Amount": extract_labour_total(text),
@@ -1401,24 +1567,39 @@ def parse_invoice(text):
     }
 
 
+
+def normalize_invoice_jobcard_no(value):
+    """
+    Duplicate compare rule:
+    Compare complete Job Card / Invoice Number only.
+    67381-03-RJC-0526-328 == 67381-03-RJC-0526-328 => duplicate
+    67381-03-RJC-0526-328 != 67381-03-RJC-0526-329 => not duplicate
+    """
+    text = str(value or "").strip().upper()
+    text = re.sub(r"\s+", "", text)
+    return text
+
 def duplicate_exists(invoice_no, reg_no=None, total_amount=None):
     """
     Duplicate rule:
-    If the same Invoice Number / Job Card Number already exists in Excel invoices,
-    do not save directly. Send Admin approval request.
+    Only complete Invoice Number / Job Card Number exact same irundha duplicate.
+    Example:
+    Excel: 67381-03-RJC-0526-328
+    New:   67381-03-RJC-0526-328 -> Duplicate
+
+    Excel: 67381-03-RJC-0526-328
+    New:   67381-03-RJC-0526-329 -> Not duplicate
     """
     inv = read_sheet("invoices")
     if inv.empty:
         return False
 
-    invoice_no = str(invoice_no or "").strip().upper()
-    if invoice_no:
-        same_invoice = inv["Invoice Number"].astype(str).str.strip().str.upper() == invoice_no
-        if same_invoice.any():
-            return True
+    new_no = normalize_invoice_jobcard_no(invoice_no)
+    if not new_no:
+        return False
 
-    return False
-
+    existing_numbers = inv["Invoice Number"].astype(str).apply(normalize_invoice_jobcard_no)
+    return (existing_numbers == new_no).any()
 
 
 def create_pending_invoice_request(data):
@@ -1474,7 +1655,7 @@ def processing_wait_3s(message="Processing entry"):
     box = st.empty()
     for sec in [3, 2, 1]:
         box.info(f"{message}... Please wait {sec} seconds.")
-        time.sleep(1)
+        time_module.sleep(1)
     box.empty()
 
 
@@ -1834,6 +2015,36 @@ def preview_item(label, value):
     """, unsafe_allow_html=True)
 
 
+
+def ultra_card(label, value, note="", icon=""):
+    st.markdown(f"""
+    <div class="ultra-card">
+        <div class="label">{icon} {label}</div>
+        <div class="value">{value}</div>
+        <div class="note">{note}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def ultra_status(title, body):
+    st.markdown(f"""
+    <div class="ultra-status">
+        <h3>{title}</h3>
+        <p>{body}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def status_badge(text, kind="green"):
+    cls = {
+        "green": "badge-green",
+        "red": "badge-red",
+        "yellow": "badge-yellow",
+        "blue": "badge-blue"
+    }.get(kind, "badge-green")
+    return f"<span class='{cls}'>{text}</span>"
+
+
 # ============================================================
 # DASHBOARD
 # ============================================================
@@ -2068,20 +2279,28 @@ def page_upload_invoice():
 
     st.markdown("<div class='section-title'>View Only OCR Preview</div>", unsafe_allow_html=True)
 
+    dup_text = "Duplicate Check Pending"
+    dup_badge = status_badge("Ready", "green")
+    if duplicate_exists(data.get("Invoice Number", "")):
+        dup_text = "Duplicate invoice/job card exists"
+        dup_badge = status_badge("Duplicate", "red")
+
     st.markdown(f"""
-    <div class="bill-preview">
-        <h2>OCR Entry Preview</h2>
-        <div class="subtle">View-only cleaned values. Unwanted OCR data is not saved.</div>
-        <div class="preview-grid">
-            <div class="preview-item"><b>Invoice / Job Card No</b><span>{data.get("Invoice Number", "")}</span></div>
-            <div class="preview-item"><b>Registration Number</b><span>{data.get("Registration Number", "")}</span></div>
-            <div class="preview-item"><b>Bike Model</b><span>{data.get("Bike Model", "")}</span></div>
-            <div class="preview-item"><b>Total Amount</b><span>₹{data.get("Total Amount", 0)}</span></div>
-            <div class="preview-item"><b>Labour Amount</b><span>₹{data.get("Labour Amount", 0)}</span></div>
-            <div class="preview-item"><b>Spare Parts Count</b><span>{data.get("Spare Parts Count", 0)}</span></div>
-            <div class="preview-item"><b>Oil Count</b><span>{data.get("Oil Count", 0)}</span></div>
-            <div class="preview-item"><b>Oil Details</b><span>{data.get("Oil Details", "-")}</span></div>
-            <div class="preview-item"><b>Spare Items</b><span>{data.get("Spare Items Preview", "-")}</span></div>
+    <div class="invoice-preview-pro">
+        <div class="invoice-preview-head">
+            <h2>OCR Entry Preview {dup_badge}</h2>
+            <p>View-only clean data. Excel save happens only after proceed / Admin approval.</p>
+        </div>
+        <div class="invoice-preview-body">
+            <div class="invoice-field"><b>Invoice / Job Card No</b><span>{data.get("Invoice Number", "")}</span></div>
+            <div class="invoice-field"><b>Registration Number</b><span>{data.get("Registration Number", "")}</span></div>
+            <div class="invoice-field"><b>Bike Model</b><span>{data.get("Bike Model", "")}</span></div>
+            <div class="invoice-field"><b>Total Amount</b><span>₹{data.get("Total Amount", 0)}</span></div>
+            <div class="invoice-field"><b>Labour Amount</b><span>₹{data.get("Labour Amount", 0)}</span></div>
+            <div class="invoice-field"><b>Spare Parts Count</b><span>{data.get("Spare Parts Count", 0)}</span></div>
+            <div class="invoice-field"><b>Oil Count</b><span>{data.get("Oil Count", 0)}</span></div>
+            <div class="invoice-field"><b>Oil Details</b><span>{data.get("Oil Details", "-")}</span></div>
+            <div class="invoice-field"><b>Spare Items</b><span>{data.get("Spare Items Preview", "-")}</span></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2112,7 +2331,15 @@ def page_upload_invoice():
 
     duplicate = duplicate_exists(data.get("Invoice Number", ""))
     if duplicate:
-        st.error("Duplicate Invoice / Job Card Number detected. Direct Excel save is blocked. Admin approval required.")
+        st.markdown(f"""
+        <div class="approve-box">
+            <h3 style="margin:0;color:#991b1b;">Duplicate Invoice / Job Card Detected</h3>
+            <p style="margin:8px 0 0 0;color:#334155;">
+                Same full number already exists in Excel: <b>{data.get("Invoice Number", "")}</b><br>
+                This entry will not be saved directly. Admin approval request will be created.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
     if st.button("Click to Proceed the Entry", use_container_width=True):
         if missing:
@@ -2122,14 +2349,14 @@ def page_upload_invoice():
         with st.spinner("Please wait... Entry processing. Do not upload another file."):
             if duplicate:
                 request_id = create_pending_invoice_request(data)
-                processing_wait_3s("Excel entry processing")
+                processing_wait_3s("Please wait, Excel entry processing")
                 st.session_state.pop("ocr_preview", None)
                 st.warning(f"Duplicate detected. Admin approval request sent. Request ID: {request_id}")
                 st.info("Invoice will be stored in Excel only after Admin approves.")
                 st.rerun()
             else:
                 save_invoice_entry_from_data(data, entry_type="OCR Upload")
-                processing_wait_3s("Excel entry processing")
+                processing_wait_3s("Please wait, Excel entry processing")
                 st.session_state.pop("ocr_preview", None)
                 st.success("Entry saved to Excel. Upload preview cleared.")
                 st.rerun()
@@ -2397,85 +2624,103 @@ def page_delete_invoice_request():
 # ADMIN PANEL
 # ============================================================
 def page_admin_panel():
-    page_hero("Admin Panel", "Employee edit, technician revenue, delete approvals and protected Excel access.", "Admin")
+    page_hero("Admin Panel", "Ultra control center for revenue, employees, approvals, Google sync and settings.", "Admin")
 
     invoices = read_sheet("invoices")
     invoices["Total Amount"] = pd.to_numeric(invoices["Total Amount"], errors="coerce").fillna(0)
 
-    st.subheader("Admin Revenue View")
-    month_key = datetime.now().strftime("%m-%Y")
-    temp = invoices.copy()
-    temp["Month"] = pd.to_datetime(temp["Date"], format="%d-%m-%Y", errors="coerce").dt.strftime("%m-%Y")
-    month_df = temp[temp["Month"] == month_key]
+    tabs = st.tabs([
+        "📊 Revenue",
+        "👥 Employees",
+        "⚠️ Duplicate Approvals",
+        "🗑️ Delete Requests",
+        "☁️ Google Sync",
+        "⚙️ Settings"
+    ])
 
-    c1, c2 = st.columns(2)
-    c1.metric("Monthly Revenue", f"₹{month_df['Total Amount'].sum():,.0f}")
-    c2.metric("Total Active Entries", len(invoices[invoices["Status"].astype(str) == "Active"]))
+    with tabs[0]:
+        st.markdown("<div class='admin-tab-note'>Admin revenue overview and technician-wise totals.</div>", unsafe_allow_html=True)
 
-    st.subheader("Technician-wise Revenue Details")
-    if not invoices.empty:
-        tech = invoices.groupby("Technician Name", dropna=False)["Total Amount"].sum().reset_index()
-        st.dataframe(tech, use_container_width=True)
+        month_key = datetime.now().strftime("%m-%Y")
+        temp = invoices.copy()
+        temp["Month"] = pd.to_datetime(temp["Date"], format="%d-%m-%Y", errors="coerce").dt.strftime("%m-%Y")
+        month_df = temp[temp["Month"] == month_key]
+        active_df = invoices[invoices["Status"].astype(str) == "Active"]
 
-    st.divider()
-    st.subheader("Employee Edit Options")
-    employees = read_sheet("employees")
-    st.dataframe(employees, use_container_width=True)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            ultra_card("Monthly Revenue", f"₹{month_df['Total Amount'].sum():,.0f}", "Admin only", "💰")
+        with c2:
+            ultra_card("Active Entries", len(active_df), "Stored invoices", "🏍️")
+        with c3:
+            ultra_card("Total Revenue", f"₹{invoices['Total Amount'].sum():,.0f}", "All entries", "📈")
 
-    with st.expander("Add / Edit Employee"):
-        user_id = st.text_input("User ID")
-        password = st.text_input("Password")
-        emp_name = st.text_input("Employee Name")
-        emp_role = st.selectbox("Role", ["Admin", "Manager", "Technician", "Prathisha / System Staff"])
-        status = st.selectbox("Status", ["Active", "Inactive"])
+        st.markdown("<div class='section-title'>Technician-wise Revenue</div>", unsafe_allow_html=True)
+        if not invoices.empty:
+            tech = invoices.groupby("Technician Name", dropna=False)["Total Amount"].sum().reset_index()
+            st.dataframe(tech, use_container_width=True)
+        else:
+            st.info("No invoice data.")
 
-        if st.button("Save Employee"):
-            if not user_id or not password or not emp_name:
-                st.error("All fields required.")
-            else:
-                df = read_sheet("employees")
-                if (df["User ID"].astype(str) == user_id).any():
-                    idx = df[df["User ID"].astype(str) == user_id].index[0]
-                    df.loc[idx, "Password"] = password
-                    df.loc[idx, "Employee Name"] = emp_name
-                    df.loc[idx, "Role"] = emp_role
-                    df.loc[idx, "Status"] = status
-                    write_sheet("employees", df)
-                    st.success("Employee updated.")
+    with tabs[1]:
+        st.markdown("<div class='admin-tab-note'>Add or update employee login details and roles.</div>", unsafe_allow_html=True)
+        employees = read_sheet("employees")
+        st.dataframe(employees, use_container_width=True)
+
+        with st.expander("Add / Edit Employee", expanded=False):
+            user_id = st.text_input("User ID")
+            password = st.text_input("Password")
+            emp_name = st.text_input("Employee Name")
+            emp_role = st.selectbox("Role", ["Admin", "Manager", "Technician", "Prathisha / System Staff"])
+            status = st.selectbox("Status", ["Active", "Inactive"])
+
+            if st.button("Save Employee", use_container_width=True):
+                if not user_id or not password or not emp_name:
+                    st.error("All fields required.")
                 else:
-                    append_row("employees", {
-                        "User ID": user_id,
-                        "Password": password,
-                        "Employee Name": emp_name,
-                        "Role": emp_role,
-                        "Status": status
-                    })
-                    st.success("Employee added.")
-                st.rerun()
+                    df = read_sheet("employees")
+                    if (df["User ID"].astype(str) == user_id).any():
+                        idx = df[df["User ID"].astype(str) == user_id].index[0]
+                        df.loc[idx, "Password"] = password
+                        df.loc[idx, "Employee Name"] = emp_name
+                        df.loc[idx, "Role"] = emp_role
+                        df.loc[idx, "Status"] = status
+                        write_sheet("employees", df)
+                        st.success("Employee updated.")
+                    else:
+                        append_row("employees", {
+                            "User ID": user_id,
+                            "Password": password,
+                            "Employee Name": emp_name,
+                            "Role": emp_role,
+                            "Status": status
+                        })
+                        st.success("Employee added.")
+                    st.rerun()
 
+    with tabs[2]:
+        st.markdown("<div class='admin-tab-note'>Duplicate invoices are stored only after Admin approval.</div>", unsafe_allow_html=True)
 
-    st.divider()
-    st.subheader("Duplicate Invoice Approval Requests")
-    pir = read_sheet("pending_invoice_requests")
-    pending_pir = pir[pir["Request Status"].astype(str) == "Pending"]
+        pir = read_sheet("pending_invoice_requests")
+        pending_pir = pir[pir["Request Status"].astype(str) == "Pending"]
 
-    if pending_pir.empty:
-        st.info("No pending duplicate invoice approval requests.")
-    else:
-        for pir_idx, pir_row in pending_pir.iterrows():
-            with st.container():
+        if pending_pir.empty:
+            st.success("No pending duplicate invoice approval requests.")
+        else:
+            for pir_idx, pir_row in pending_pir.iterrows():
                 st.markdown(f"""
-                <div class="approve-box">
-                    <b>Request ID:</b> {pir_row['Request ID']}<br>
-                    <b>Invoice / Job Card No:</b> {pir_row['Invoice Number']}<br>
-                    <b>Technician:</b> {pir_row['Technician Name']}<br>
-                    <b>Vehicle:</b> {pir_row['Registration Number']} | {pir_row['Bike Model']}<br>
-                    <b>Total:</b> ₹{pir_row['Total Amount']}
+                <div class="approval-card">
+                    <h3>Duplicate Approval Request {status_badge("Pending", "yellow")}</h3>
+                    <p><b>Request ID:</b> {pir_row['Request ID']}</p>
+                    <p><b>Invoice / Job Card No:</b> {pir_row['Invoice Number']}</p>
+                    <p><b>Technician:</b> {pir_row['Technician Name']}</p>
+                    <p><b>Vehicle:</b> {pir_row['Registration Number']} | {pir_row['Bike Model']}</p>
+                    <p><b>Total:</b> ₹{pir_row['Total Amount']}</p>
                 </div>
                 """, unsafe_allow_html=True)
 
                 a1, a2 = st.columns(2)
-                if a1.button("Approve & Store Invoice", key=f"approve_pir_{pir_idx}"):
+                if a1.button("Approve & Store Invoice", key=f"approve_pir_{pir_idx}", use_container_width=True):
                     save_invoice_entry_from_data(pir_row.to_dict(), entry_type="Admin Approved Duplicate")
                     pir.loc[pir_idx, "Request Status"] = "Approved"
                     pir.loc[pir_idx, "Admin Action Date"] = now_stamp()
@@ -2483,29 +2728,34 @@ def page_admin_panel():
                     st.success("Approved. Invoice stored in Excel.")
                     st.rerun()
 
-                if a2.button("Reject Duplicate Request", key=f"reject_pir_{pir_idx}"):
+                if a2.button("Reject Duplicate Request", key=f"reject_pir_{pir_idx}", use_container_width=True):
                     pir.loc[pir_idx, "Request Status"] = "Rejected"
                     pir.loc[pir_idx, "Admin Action Date"] = now_stamp()
                     write_sheet("pending_invoice_requests", pir)
                     st.warning("Request rejected. Invoice not stored.")
                     st.rerun()
 
+    with tabs[3]:
+        st.markdown("<div class='admin-tab-note'>Technician delete requests. Invoice deletes only after Admin approval.</div>", unsafe_allow_html=True)
 
-    st.divider()
-    st.subheader("Technician Delete Invoice Requests")
-    req = read_sheet("delete_requests")
-    pending = req[req["Request Status"].astype(str) == "Pending"]
+        req = read_sheet("delete_requests")
+        pending = req[req["Request Status"].astype(str) == "Pending"]
 
-    if pending.empty:
-        st.info("No pending delete requests.")
-    else:
-        for idx, row in pending.iterrows():
-            with st.container():
-                st.write(f"Request ID: **{row['Request ID']}** | Entry ID: **{row['Entry ID']}**")
-                st.write(f"Technician: **{row['Technician Name']}** | Reason: {row['Reason']}")
+        if pending.empty:
+            st.success("No pending delete requests.")
+        else:
+            for idx, row in pending.iterrows():
+                st.markdown(f"""
+                <div class="approval-card">
+                    <h3>Delete Request {status_badge("Pending", "yellow")}</h3>
+                    <p><b>Request ID:</b> {row['Request ID']} | <b>Entry ID:</b> {row['Entry ID']}</p>
+                    <p><b>Technician:</b> {row['Technician Name']}</p>
+                    <p><b>Reason:</b> {row['Reason']}</p>
+                </div>
+                """, unsafe_allow_html=True)
 
                 c1, c2 = st.columns(2)
-                if c1.button("Approve Delete", key=f"approve_{idx}"):
+                if c1.button("Approve Delete", key=f"approve_{idx}", use_container_width=True):
                     inv = read_sheet("invoices")
                     inv_idx = inv[inv["Entry ID"].astype(str) == str(row["Entry ID"])].index
                     if len(inv_idx) > 0:
@@ -2518,88 +2768,82 @@ def page_admin_panel():
                     st.success("Request approved and invoice deleted.")
                     st.rerun()
 
-                if c2.button("Reject Request", key=f"reject_{idx}"):
+                if c2.button("Reject Request", key=f"reject_{idx}", use_container_width=True):
                     req.loc[idx, "Request Status"] = "Rejected"
                     req.loc[idx, "Admin Action Date"] = now_stamp()
                     write_sheet("delete_requests", req)
                     st.warning("Request rejected.")
                     st.rerun()
 
-    st.divider()
-    st.subheader("Settings")
-    settings = read_sheet("settings")
-    st.dataframe(settings, use_container_width=True)
+    with tabs[4]:
+        st.markdown("<div class='admin-tab-note'>Excel saves first for speed. Google Sheet sync runs every 5 minutes when app is active.</div>", unsafe_allow_html=True)
 
-
-    st.subheader("5 Minutes Auto Google Sheet Sync Status")
-    if is_google_auto_sync_enabled():
-        st.success("5 minutes auto sync is ON. Excel saves instantly first; changed sheets sync to Google Sheet once every 5 minutes.")
-    else:
-        st.warning("5 minutes auto sync is OFF. Add SHEET_ID and gcp_service_account in Streamlit Secrets.")
-
-    sync_state = load_sync_state()
-    dirty_sheets = sync_state.get("dirty_sheets", [])
-    waiting_text = get_next_google_sync_wait_text()
-    badge_text = get_sync_status_badge_text()
-
-    if dirty_sheets:
-        st.warning(f"Google Sheet update waiting: {len(dirty_sheets)} sheet(s) pending.")
-    elif sync_state.get("last_sync_status") == "Success":
-        st.success("Google Sheet updated successfully. No pending sheets.")
-    else:
-        st.info("Google Sheet sync not yet completed.")
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Google Sheet Status", badge_text)
-    c2.metric("Waiting Sheets", len(dirty_sheets))
-    c3.metric("Next Auto Sync", waiting_text)
-    c4.metric("Last Sync Time", sync_state.get("last_sync_time", "Not yet"))
-
-    if dirty_sheets:
-        st.caption("Waiting sheets: " + ", ".join(dirty_sheets))
-
-    if sync_state.get("last_sync_message"):
-        st.caption("Last sync message: " + str(sync_state.get("last_sync_message", "")))
-
-    if st.button("Sync Changed Sheets Now", use_container_width=True):
-        with st.spinner("Syncing changed sheets to Google Sheet..."):
-            ok, msg = sync_dirty_sheets_to_google_sheet()
-
-        if ok:
-            st.success("Google Sheet updated now. " + msg)
-            st.rerun()
+        if is_google_auto_sync_enabled():
+            ultra_status("Google Sheet Sync ON", "Excel entries are saved first. Changed sheets will sync automatically every 5 minutes.")
         else:
-            st.error(msg)
+            st.warning("Google Sheet sync OFF. Add SHEET_ID and gcp_service_account in Streamlit Secrets.")
 
-    st.subheader("Google Sheet Cloud Backup")
-    st.caption("Excel storage is primary. This button copies all Excel sheets to Google Sheet only when Admin clicks it.")
+        sync_state = load_sync_state()
+        dirty_sheets = sync_state.get("dirty_sheets", [])
+        waiting_text = get_next_google_sync_wait_text() if "get_next_google_sync_wait_text" in globals() else "Not available"
+        badge_text = get_sync_status_badge_text() if "get_sync_status_badge_text" in globals() else sync_state.get("last_sync_status", "Not yet")
 
-    if st.button("Sync All Excel Data to Google Sheet", use_container_width=True):
-        with st.spinner("Syncing Excel data to Google Sheet..."):
-            ok, msg = sync_excel_to_google_sheet()
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            ultra_card("Google Status", badge_text, "Updated / Waiting", "☁️")
+        with c2:
+            ultra_card("Waiting Sheets", len(dirty_sheets), ", ".join(dirty_sheets) if dirty_sheets else "None", "⏳")
+        with c3:
+            ultra_card("Next Sync", waiting_text, "Auto sync timer", "⏱️")
+        with c4:
+            ultra_card("Last Sync", sync_state.get("last_sync_time", "Not yet"), "Google Sheet", "✅")
 
-        if ok:
-            st.success(msg)
-        else:
-            st.error(msg)
+        if sync_state.get("last_sync_message"):
+            st.caption("Last sync message: " + str(sync_state.get("last_sync_message", "")))
 
+        if st.button("Sync Changed Sheets Now", use_container_width=True):
+            with st.spinner("Syncing changed sheets to Google Sheet..."):
+                ok, msg = sync_dirty_sheets_to_google_sheet()
 
-    st.subheader("Password Protected Excel Sheet Direct Link")
-    pwd = st.text_input("Enter password to view Excel link", type="password")
-    if pwd == SECRET_PASSWORD:
-        st.success("Password correct.")
-        st.write(f"Excel file path: `{EXCEL_FILE}`")
-        if EXCEL_FILE.exists():
-            with open(EXCEL_FILE, "rb") as f:
-                st.download_button(
-                    "Download / Visit Excel Sheet",
-                    f,
-                    file_name="selva_motors_excel_storage.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-    elif pwd:
-        st.error("Wrong password.")
+            if ok:
+                st.success("Google Sheet updated now. " + msg)
+                st.rerun()
+            else:
+                st.error(msg)
 
+        st.divider()
+        st.subheader("Manual Full Sync")
+        st.caption("This copies all Excel sheets to Google Sheet.")
+        if st.button("Sync All Excel Data to Google Sheet", use_container_width=True):
+            with st.spinner("Syncing all Excel data to Google Sheet..."):
+                ok, msg = sync_excel_to_google_sheet()
+            if ok:
+                st.success(msg)
+            else:
+                st.error(msg)
+
+    with tabs[5]:
+        st.markdown("<div class='admin-tab-note'>Settings and password-protected Excel download.</div>", unsafe_allow_html=True)
+
+        settings = read_sheet("settings")
+        st.dataframe(settings, use_container_width=True)
+
+        st.subheader("Password Protected Excel Sheet Direct Link")
+        pwd = st.text_input("Enter password to view Excel link", type="password")
+        if pwd == SECRET_PASSWORD:
+            st.success("Password correct.")
+            st.write(f"Excel file path: `{EXCEL_FILE}`")
+            if EXCEL_FILE.exists():
+                with open(EXCEL_FILE, "rb") as f:
+                    st.download_button(
+                        "Download / Visit Excel Sheet",
+                        f,
+                        file_name="selva_motors_excel_storage.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+        elif pwd:
+            st.error("Wrong password.")
 
 # ============================================================
 # MANAGER EDIT
