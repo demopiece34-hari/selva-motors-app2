@@ -1570,36 +1570,60 @@ def parse_invoice(text):
 
 def normalize_invoice_jobcard_no(value):
     """
-    Duplicate compare rule:
-    Compare complete Job Card / Invoice Number only.
-    67381-03-RJC-0526-328 == 67381-03-RJC-0526-328 => duplicate
-    67381-03-RJC-0526-328 != 67381-03-RJC-0526-329 => not duplicate
+    Strict duplicate compare normalizer.
+    Full Invoice / Job Card number exact-aa compare pannum.
+    Blank, '-', 'nan', 'none' values duplicate-aa count aagathu.
     """
     text = str(value or "").strip().upper()
+    text = text.replace("\u00a0", "")
     text = re.sub(r"\s+", "", text)
+    text = text.strip(":-_/|., ")
+
+    if text in ["", "-", "NAN", "NONE", "NULL", "0"]:
+        return ""
+
     return text
+
 
 def duplicate_exists(invoice_no, reg_no=None, total_amount=None):
     """
     Duplicate rule:
-    Only complete Invoice Number / Job Card Number exact same irundha duplicate.
-    Example:
-    Excel: 67381-03-RJC-0526-328
-    New:   67381-03-RJC-0526-328 -> Duplicate
+    Only full exact Invoice / Job Card number already stored in invoices sheet means duplicate.
 
-    Excel: 67381-03-RJC-0526-328
-    New:   67381-03-RJC-0526-329 -> Not duplicate
+    Examples:
+    Existing: 67381-03-RJC-0526-328
+    New:      67381-03-RJC-0526-328 -> duplicate
+
+    Existing: 67381-03-RJC-0526-328
+    New:      67381-03-RJC-0526-329 -> not duplicate
+
+    Blank existing rows and blank new values are ignored.
     """
-    inv = read_sheet("invoices")
-    if inv.empty:
-        return False
-
     new_no = normalize_invoice_jobcard_no(invoice_no)
     if not new_no:
         return False
 
-    existing_numbers = inv["Invoice Number"].astype(str).apply(normalize_invoice_jobcard_no)
-    return (existing_numbers == new_no).any()
+    try:
+        inv = read_sheet("invoices")
+    except Exception:
+        return False
+
+    if inv.empty or "Invoice Number" not in inv.columns:
+        return False
+
+    existing_numbers = (
+        inv["Invoice Number"]
+        .astype(str)
+        .apply(normalize_invoice_jobcard_no)
+    )
+
+    # Remove blank/invalid rows before exact compare
+    existing_numbers = existing_numbers[existing_numbers.astype(str).str.len() > 0]
+
+    if existing_numbers.empty:
+        return False
+
+    return bool((existing_numbers == new_no).any())
 
 
 def create_pending_invoice_request(data):
@@ -2329,17 +2353,28 @@ def page_upload_invoice():
         st.warning("Missing detected values: " + ", ".join(missing))
         st.info("Preview is view-only as per requirement. Upload a clearer invoice if values are missing.")
 
-    duplicate = duplicate_exists(data.get("Invoice Number", ""))
+    invoice_number_clean = normalize_invoice_jobcard_no(data.get("Invoice Number", ""))
+    duplicate = duplicate_exists(invoice_number_clean) if invoice_number_clean else False
+
     if duplicate:
         st.markdown(f"""
         <div class="approve-box">
             <h3 style="margin:0;color:#991b1b;">Duplicate Invoice / Job Card Detected</h3>
             <p style="margin:8px 0 0 0;color:#334155;">
-                Same full number already exists in Excel: <b>{data.get("Invoice Number", "")}</b><br>
+                Same full number already exists in Excel: <b>{invoice_number_clean}</b><br>
                 This entry will not be saved directly. Admin approval request will be created.
             </p>
         </div>
         """, unsafe_allow_html=True)
+
+    if is_admin() or is_manager():
+        with st.expander("Duplicate Debug - Exact Compare"):
+            inv_debug = read_sheet("invoices")
+            st.write("New invoice/jobcard number:", invoice_number_clean)
+            if "Invoice Number" in inv_debug.columns:
+                existing_clean = inv_debug["Invoice Number"].astype(str).apply(normalize_invoice_jobcard_no)
+                st.write("Existing stored numbers:", existing_clean[existing_clean.astype(str).str.len() > 0].tolist())
+            st.write("Duplicate result:", duplicate)
 
     if st.button("Click to Proceed the Entry", use_container_width=True):
         if missing:
@@ -2347,7 +2382,10 @@ def page_upload_invoice():
             return
 
         with st.spinner("Please wait... Entry processing. Do not upload another file."):
-            if duplicate:
+            final_invoice_no = normalize_invoice_jobcard_no(data.get("Invoice Number", ""))
+            final_duplicate = duplicate_exists(final_invoice_no) if final_invoice_no else False
+
+            if final_duplicate:
                 request_id = create_pending_invoice_request(data)
                 processing_wait_3s("Please wait, Excel entry processing")
                 st.session_state.pop("ocr_preview", None)
