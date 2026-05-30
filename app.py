@@ -54,13 +54,13 @@ except Exception:
 # ============================================================
 
 st.set_page_config(
-    page_title="Selva Motors Google Sheet Storage App",
+    page_title="Selva Motors Excel Storage App",
     page_icon="🏍️",
     layout="wide"
 )
 
 APP_TITLE = "SELVA MOTORS EXCEL STORAGE APP"
-VERSION_TEXT = "Google Sheet Storage Version"
+VERSION_TEXT = "Excel Storage Version"
 SECRET_PASSWORD = "hari121"
 
 DATA_DIR = Path("data")
@@ -73,8 +73,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 PDF_DIR.mkdir(exist_ok=True)
 BACKUP_DIR.mkdir(exist_ok=True)
 
-EXCEL_FILE = DATA_DIR / "selva_motors_excel_storage_DISABLED.xlsx"
-GOOGLE_STORAGE_MODE = True
+EXCEL_FILE = DATA_DIR / "selva_motors_excel_storage.xlsx"
 SYNC_STATE_FILE = DATA_DIR / "google_sync_state.json"
 
 COMPANY_LAT = 10.759710
@@ -721,111 +720,34 @@ def now_stamp():
     return datetime.now().strftime("%d-%m-%Y %I:%M:%S %p")
 
 
-# ============================================================
-# GOOGLE SHEET STORAGE ONLY
-# No Google Sheet storage. No MySQL. No SQLAlchemy.
-# ============================================================
-@st.cache_resource(show_spinner=False)
-def google_sheet_client_cached():
-    if gspread is None or Credentials is None:
-        st.error("Google Sheet libraries missing. Add gspread and google-auth in requirements.txt")
-        st.stop()
+def create_excel_if_missing():
+    if EXCEL_FILE.exists():
+        return
 
-    if "SHEET_ID" not in st.secrets:
-        st.error("SHEET_ID missing in Streamlit Secrets.")
-        st.stop()
+    with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl") as writer:
+        for sheet, cols in SHEETS.items():
+            df = pd.DataFrame(columns=cols)
 
-    if "gcp_service_account" not in st.secrets:
-        st.error("gcp_service_account missing in Streamlit Secrets.")
-        st.stop()
+            if sheet == "employees":
+                df = pd.DataFrame(DEFAULT_EMPLOYEES, columns=cols)
 
-    scope = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=scope
-    )
-    client = gspread.authorize(creds)
-    spreadsheet = client.open_by_key(st.secrets["SHEET_ID"])
-    return spreadsheet
-
-
-def get_spreadsheet():
-    return google_sheet_client_cached()
-
-
-def get_or_create_worksheet(sheet_name):
-    spreadsheet = get_spreadsheet()
-
-    try:
-        return spreadsheet.worksheet(sheet_name)
-    except Exception:
-        ws = spreadsheet.add_worksheet(
-            title=sheet_name,
-            rows=1000,
-            cols=max(len(SHEETS.get(sheet_name, [])) + 5, 20)
-        )
-        if sheet_name in SHEETS:
-            ws.update([SHEETS[sheet_name]])
-        return ws
-
-
-def ensure_google_sheets_ready():
-    """
-    Creates all required worksheets and headers in Google Sheet.
-    Also inserts default employees if employees sheet is empty.
-    """
-    for sheet_name, cols in SHEETS.items():
-        ws = get_or_create_worksheet(sheet_name)
-        values = ws.get_all_values()
-
-        if not values:
-            ws.update([cols])
-            values = [cols]
-
-        current_headers = values[0]
-        missing_cols = [c for c in cols if c not in current_headers]
-
-        if missing_cols:
-            new_headers = current_headers + missing_cols
-            ws.update("1:1", [new_headers])
-
-        if sheet_name == "employees":
-            rows = ws.get_all_records()
-            if not rows:
-                ws.update([cols] + DEFAULT_EMPLOYEES)
-
-        if sheet_name == "settings":
-            rows = ws.get_all_records()
-            if not rows:
-                ws.update([cols] + [
-                    ["Storage Type", "Google Sheet Only"],
-                    ["Version", "Direct Google Sheet Storage"],
-                    ["Google Sheet ID", st.secrets.get("SHEET_ID", "")],
+            if sheet == "settings":
+                df = pd.DataFrame([
+                    ["Storage Type", "Excel Only"],
+                    ["Version", VERSION_TEXT],
+                    ["Excel File Path", str(EXCEL_FILE)],
                     ["Company Latitude", str(COMPANY_LAT)],
                     ["Company Longitude", str(COMPANY_LON)],
                     ["Allowed Radius Meter", str(ALLOWED_RADIUS_METER)],
-                ])
+                ], columns=cols)
 
-
-def create_excel_if_missing():
-    """
-    Kept only for compatibility with old function calls.
-    It now prepares Google Sheet tabs instead of creating Excel.
-    """
-    ensure_google_sheets_ready()
+            df.to_excel(writer, sheet_name=sheet, index=False)
 
 
 def read_sheet(sheet_name):
-    ensure_google_sheets_ready()
-
+    create_excel_if_missing()
     try:
-        ws = get_or_create_worksheet(sheet_name)
-        records = ws.get_all_records()
-        df = pd.DataFrame(records)
+        df = pd.read_excel(EXCEL_FILE, sheet_name=sheet_name, engine="openpyxl")
     except Exception:
         df = pd.DataFrame(columns=SHEETS[sheet_name])
 
@@ -837,38 +759,37 @@ def read_sheet(sheet_name):
 
 
 def write_sheet(sheet_name, df):
-    """
-    Writes complete dataframe directly to Google Sheet.
-    """
-    ensure_google_sheets_ready()
+    create_excel_if_missing()
 
-    temp = df.copy()
-    for col in SHEETS[sheet_name]:
-        if col not in temp.columns:
-            temp[col] = ""
+    all_sheets = {}
+    for name in SHEETS:
+        if name == sheet_name:
+            temp = df.copy()
+            for col in SHEETS[name]:
+                if col not in temp.columns:
+                    temp[col] = ""
+            all_sheets[name] = temp[SHEETS[name]]
+        else:
+            all_sheets[name] = read_sheet(name)
 
-    temp = temp[SHEETS[sheet_name]].fillna("").astype(str)
-    ws = get_or_create_worksheet(sheet_name)
-    ws.clear()
-    values = [temp.columns.tolist()] + temp.values.tolist()
-    ws.update(values)
+    with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl", mode="w") as writer:
+        for name, data in all_sheets.items():
+            data.to_excel(writer, sheet_name=name, index=False)
+
+    # Fast mode:
+    # Save to Excel now, mark changed sheet for Google Sheet sync after 5 minutes.
+    try:
+        if "mark_sheet_dirty" in globals():
+            mark_sheet_dirty(sheet_name)
+    except Exception:
+        pass
 
 
 def append_row(sheet_name, row_dict):
-    """
-    Appends one row directly to Google Sheet.
-    """
-    ensure_google_sheets_ready()
-
-    clean_row = [str(row_dict.get(col, "")) for col in SHEETS[sheet_name]]
-    ws = get_or_create_worksheet(sheet_name)
-
-    # Ensure header exists before append
-    values = ws.get_all_values()
-    if not values:
-        ws.update([SHEETS[sheet_name]])
-
-    ws.append_row(clean_row, value_input_option="USER_ENTERED")
+    df = read_sheet(sheet_name)
+    clean_row = {col: row_dict.get(col, "") for col in SHEETS[sheet_name]}
+    df = pd.concat([df, pd.DataFrame([clean_row])], ignore_index=True)
+    write_sheet(sheet_name, df)
 
 
 create_excel_if_missing()
@@ -916,40 +837,235 @@ def dataframe_to_sheet_values(df):
 
 
 
-# ============================================================
-# GOOGLE SHEET DIRECT STORAGE STATUS
-# ============================================================
 def is_google_auto_sync_enabled():
-    return True
+    """
+    Google Sheet auto store will work only when Streamlit secrets are configured.
+    Excel remains primary storage, Google Sheet is automatic cloud copy.
+    """
+    return bool(st.secrets.get("SHEET_ID", "")) and ("gcp_service_account" in st.secrets)
+
+
+def sync_single_excel_sheet_to_google_sheet(sheet_name):
+    """
+    Sync only the changed Excel sheet to Google Sheet immediately after saving.
+    This is faster than syncing all sheets after every entry.
+    """
+    if not is_google_auto_sync_enabled():
+        return False, "Google Sheet secrets not configured"
+
+    try:
+        sheet_id = st.secrets.get("SHEET_ID", "")
+        client, err = google_sheet_client()
+        if client is None:
+            return False, err
+
+        spreadsheet = client.open_by_key(sheet_id)
+        df = read_sheet(sheet_name)
+
+        ws = get_or_create_worksheet(
+            spreadsheet,
+            sheet_name,
+            rows=max(len(df) + 20, 100),
+            cols=max(len(df.columns) + 5, 20)
+        )
+
+        ws.clear()
+        values = dataframe_to_sheet_values(df)
+        if values:
+            ws.update(values)
+
+        return True, f"{sheet_name} synced to Google Sheet"
+    except Exception as e:
+        return False, str(e)
+
+
 
 
 def load_sync_state():
+    try:
+        if SYNC_STATE_FILE.exists():
+            return json.loads(SYNC_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+
     return {
         "dirty_sheets": [],
-        "last_sync_time": "Direct Google Sheet Storage",
-        "last_sync_status": "Updated",
-        "last_sync_message": "Data is stored directly in Google Sheet.",
+        "last_sync_ts": 0,
+        "last_sync_time": "Not yet",
+        "last_sync_status": "Not yet",
+        "last_sync_message": "",
+        "last_change_time": "Not yet"
     }
 
 
-def get_next_google_sync_wait_text():
-    return "No waiting - direct save"
+def save_sync_state(state):
+    try:
+        SYNC_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
 
-def get_sync_status_badge_text():
-    return "Updated"
+def mark_sheet_dirty(sheet_name):
+    state = load_sync_state()
+    dirty = set(state.get("dirty_sheets", []))
+    dirty.add(sheet_name)
+    state["dirty_sheets"] = sorted(list(dirty))
+    state["last_change_time"] = datetime.now().strftime("%d-%m-%Y %I:%M:%S %p")
+    save_sync_state(state)
 
 
 def sync_dirty_sheets_to_google_sheet():
-    return True, "No pending sync. Data is already stored directly in Google Sheet."
+    state = load_sync_state()
+    dirty_sheets = state.get("dirty_sheets", [])
+
+    if not dirty_sheets:
+        return True, "No changed sheets to sync."
+
+    if not is_google_auto_sync_enabled():
+        return False, "Google Sheet secrets not configured."
+
+    synced = []
+    failed = []
+
+    for sheet_name in dirty_sheets:
+        ok, msg = sync_single_excel_sheet_to_google_sheet(sheet_name)
+        if ok:
+            synced.append(sheet_name)
+        else:
+            failed.append(f"{sheet_name}: {msg}")
+
+    now = datetime.now()
+
+    if failed:
+        state["last_sync_status"] = "Failed"
+        state["last_sync_message"] = "; ".join(failed)[:500]
+        state["last_sync_time"] = now.strftime("%d-%m-%Y %I:%M:%S %p")
+        save_sync_state(state)
+        return False, state["last_sync_message"]
+
+    state["dirty_sheets"] = []
+    state["last_sync_ts"] = now.timestamp()
+    state["last_sync_time"] = now.strftime("%d-%m-%Y %I:%M:%S %p")
+    state["last_sync_status"] = "Success"
+    state["last_sync_message"] = "Synced sheets: " + ", ".join(synced)
+    save_sync_state(state)
+
+    return True, state["last_sync_message"]
 
 
-def sync_excel_to_google_sheet():
-    return True, "Excel sync not needed. App is using direct Google Sheet storage."
+
+def get_next_google_sync_wait_text():
+    """
+    Returns readable waiting time for next 5-minute Google Sheet sync.
+    """
+    try:
+        state = load_sync_state()
+        dirty_sheets = state.get("dirty_sheets", [])
+
+        if not dirty_sheets:
+            return "No pending sync"
+
+        last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
+        now_ts = datetime.now().timestamp()
+        interval = 5 * 60
+
+        if last_sync_ts == 0:
+            return "Ready to sync now"
+
+        remaining = int(interval - (now_ts - last_sync_ts))
+
+        if remaining <= 0:
+            return "Ready to sync now"
+
+        minutes = remaining // 60
+        seconds = remaining % 60
+        return f"{minutes} min {seconds} sec remaining"
+
+    except Exception:
+        return "Waiting time not available"
+
+
+def get_sync_status_badge_text():
+    state = load_sync_state()
+    dirty_sheets = state.get("dirty_sheets", [])
+    status = state.get("last_sync_status", "Not yet")
+
+    if dirty_sheets:
+        return "Waiting for Google Sheet update"
+
+    if status == "Success":
+        return "Updated to Google Sheet"
+
+    return status
 
 
 def auto_sync_google_sheet_5min():
-    return None
+    """
+    Excel save is instant and fast.
+    Google Sheet sync runs only once every 5 minutes when app opens/reruns.
+    """
+    try:
+        state = load_sync_state()
+        dirty_sheets = state.get("dirty_sheets", [])
+
+        if not dirty_sheets:
+            return
+
+        now_ts = datetime.now().timestamp()
+        last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
+        sync_interval = 5 * 60
+
+        if now_ts - last_sync_ts < sync_interval:
+            return
+
+        sync_dirty_sheets_to_google_sheet()
+
+    except Exception:
+        pass
+
+
+
+def sync_excel_to_google_sheet():
+    """
+    Copies all local Excel sheets to Google Sheet.
+    This does not replace Excel storage. It is only a manual cloud backup.
+    """
+    if not EXCEL_FILE.exists():
+        return False, "Excel file not found. Save some data first."
+
+    sheet_id = st.secrets.get("SHEET_ID", "")
+    if not sheet_id:
+        return False, "Streamlit secrets missing: SHEET_ID"
+
+    client, err = google_sheet_client()
+    if client is None:
+        return False, err
+
+    try:
+        spreadsheet = client.open_by_key(sheet_id)
+
+        synced = []
+        for sheet_name in SHEETS.keys():
+            df = read_sheet(sheet_name)
+            ws = get_or_create_worksheet(
+                spreadsheet,
+                sheet_name,
+                rows=max(len(df) + 20, 100),
+                cols=max(len(df.columns) + 5, 20)
+            )
+
+            ws.clear()
+            values = dataframe_to_sheet_values(df)
+            if values:
+                ws.update(values)
+
+            synced.append(f"{sheet_name} ({len(df)} rows)")
+
+        return True, "Synced to Google Sheet: " + ", ".join(synced)
+
+    except Exception as e:
+        return False, str(e)
+
 
 
 
@@ -1778,7 +1894,7 @@ def page_login():
             <div style="font-size:26px;font-weight:900;color:#0f172a;margin-top:8px;">Staff Login Portal</div>
             <div class="subtle">Premium service management dashboard for attendance, invoice entry, reports and manual bill workflow.</div>
             <div class="feature-strip">
-                <div class="feature-pill">Google Sheet Storage</div>
+                <div class="feature-pill">Excel Storage</div>
                 <div class="feature-pill">Role Based</div>
                 <div class="feature-pill">OCR Entry</div>
                 <div class="feature-pill">PDF Reports</div>
@@ -2275,16 +2391,16 @@ def page_upload_invoice():
 
             if final_duplicate:
                 request_id = create_pending_invoice_request(data)
-                processing_wait_3s("Please wait, Google Sheet entry processing")
+                processing_wait_3s("Please wait, Excel entry processing")
                 st.session_state.pop("ocr_preview", None)
                 st.warning(f"Duplicate detected. Admin approval request sent. Request ID: {request_id}")
-                st.info("Invoice will be stored in Google Sheet only after Admin approves.")
+                st.info("Invoice will be stored in Excel only after Admin approves.")
                 st.rerun()
             else:
                 save_invoice_entry_from_data(data, entry_type="OCR Upload")
-                processing_wait_3s("Please wait, Google Sheet entry processing")
+                processing_wait_3s("Please wait, Excel entry processing")
                 st.session_state.pop("ocr_preview", None)
-                st.success("Entry saved directly to Google Sheet. Upload preview cleared.")
+                st.success("Entry saved to Excel. Upload preview cleared.")
                 st.rerun()
 
 
@@ -2652,7 +2768,7 @@ def page_admin_panel():
                     pir.loc[pir_idx, "Request Status"] = "Approved"
                     pir.loc[pir_idx, "Admin Action Date"] = now_stamp()
                     write_sheet("pending_invoice_requests", pir)
-                    st.success("Approved. Invoice stored in Google Sheet.")
+                    st.success("Approved. Invoice stored in Excel.")
                     st.rerun()
 
                 if a2.button("Reject Duplicate Request", key=f"reject_pir_{pir_idx}", use_container_width=True):
@@ -2703,10 +2819,10 @@ def page_admin_panel():
                     st.rerun()
 
     with tabs[4]:
-        st.markdown("<div class='admin-tab-note'>Google Sheet direct storage is enabled. Google Sheet storage is disabled.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='admin-tab-note'>Excel saves first for speed. Google Sheet sync runs every 5 minutes when app is active.</div>", unsafe_allow_html=True)
 
         if is_google_auto_sync_enabled():
-            ultra_status("Google Sheet Sync ON", "Every entry is saved directly to Google Sheet. Google Sheet storage is disabled.")
+            ultra_status("Google Sheet Sync ON", "Excel entries are saved first. Changed sheets will sync automatically every 5 minutes.")
         else:
             st.warning("Google Sheet sync OFF. Add SHEET_ID and gcp_service_account in Streamlit Secrets.")
 
@@ -2719,9 +2835,9 @@ def page_admin_panel():
         with c1:
             ultra_card("Google Status", badge_text, "Updated / Waiting", "☁️")
         with c2:
-            ultra_card("Pending Sync", len(dirty_sheets), ", ".join(dirty_sheets) if dirty_sheets else "None", "⏳")
+            ultra_card("Waiting Sheets", len(dirty_sheets), ", ".join(dirty_sheets) if dirty_sheets else "None", "⏳")
         with c3:
-            ultra_card("Sync Mode", waiting_text, "Direct save", "⏱️")
+            ultra_card("Next Sync", waiting_text, "Auto sync timer", "⏱️")
         with c4:
             ultra_card("Last Sync", sync_state.get("last_sync_time", "Not yet"), "Google Sheet", "✅")
 
@@ -2755,17 +2871,20 @@ def page_admin_panel():
         settings = read_sheet("settings")
         st.dataframe(settings, use_container_width=True)
 
-        st.subheader("Google Sheet Direct Link")
-        pwd = st.text_input("Enter password to view Google Sheet link", type="password")
+        st.subheader("Password Protected Excel Sheet Direct Link")
+        pwd = st.text_input("Enter password to view Excel link", type="password")
         if pwd == SECRET_PASSWORD:
             st.success("Password correct.")
-            sheet_id = st.secrets.get("SHEET_ID", "")
-            if sheet_id:
-                google_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
-                st.markdown(f"[Open Google Sheet]({google_url})")
-                st.code(google_url)
-            else:
-                st.error("SHEET_ID missing in Streamlit Secrets.")
+            st.write(f"Excel file path: `{EXCEL_FILE}`")
+            if EXCEL_FILE.exists():
+                with open(EXCEL_FILE, "rb") as f:
+                    st.download_button(
+                        "Download / Visit Excel Sheet",
+                        f,
+                        file_name="selva_motors_excel_storage.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
         elif pwd:
             st.error("Wrong password.")
 
