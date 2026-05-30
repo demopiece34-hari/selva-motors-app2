@@ -3917,4 +3917,5 @@ def page_manager_edit():
         return
 
     entry_id = st.selectbox("Select Entry ID to edit status", invoices["Entry ID"].astype(str).tolist())
-    new_status = st.selectbox("New Status", ["Active", "Hold", "Completed", "Cancelled"])
+    new_status = st.selectbox("New Status", ["Active", "Hold", "Completed", "Cancel
+Preview truncated for large file
