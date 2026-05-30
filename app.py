@@ -674,7 +674,7 @@ SHEETS = {
     "invoices": [
         "Entry ID", "Date", "Technician Name", "User ID",
         "Invoice Number", "Job Card Number", "Registration Number", "Bike Model",
-        "Labour Amount", "Spare Parts Count", "Oil Count", "Oil Details",
+        "Labour Amount", "Spare Parts Count", "Oil Change Status",
         "Total Amount", "Entry Type", "Status"
     ],
     "delete_requests": [
@@ -684,7 +684,7 @@ SHEETS = {
     "pending_invoice_requests": [
         "Request ID", "Date", "Time", "Technician Name", "User ID",
         "Invoice Number", "Job Card Number", "Registration Number", "Bike Model",
-        "Labour Amount", "Spare Parts Count", "Oil Count", "Oil Details",
+        "Labour Amount", "Spare Parts Count", "Oil Change Status",
         "Total Amount", "Entry Type", "Request Status", "Admin Action Date"
     ],
     "manual_invoices": [
@@ -1550,7 +1550,8 @@ def parse_invoice(text):
         r"Name\s*[:\-]?\s*([A-Za-z .]{2,45})"
     ], flat)
 
-    spare_items = extract_genuine_spare_details(text)
+    oil_count, _oil_details = detect_oil(text)
+    oil_status = "Yes" if oil_count > 0 else "No"
 
     return {
         "Customer Name": clean_customer_name(customer_name),
@@ -1560,9 +1561,7 @@ def parse_invoice(text):
         "Bike Model": clean_bike_model(bike_model),
         "Labour Amount": extract_labour_total(text),
         "Spare Parts Count": count_genuine_spare_items(text),
-        "Oil Count": detect_oil(text)[0],
-        "Oil Details": detect_oil(text)[1],
-        "Spare Items Preview": "; ".join(spare_items) if spare_items else "-",
+        "Oil Change Status": oil_status,
         "Total Amount": extract_invoice_amount(text),
     }
 
@@ -1570,9 +1569,9 @@ def parse_invoice(text):
 
 def normalize_invoice_jobcard_no(value):
     """
-    Strict duplicate compare normalizer.
-    Full Invoice / Job Card number exact-aa compare pannum.
-    Blank, '-', 'nan', 'none' values duplicate-aa count aagathu.
+    Strict Job Card duplicate compare normalizer.
+    Only real full job card numbers are returned.
+    Blank, nan, none, '-', invoice-only values are ignored.
     """
     text = str(value or "").strip().upper()
     text = text.replace("\u00a0", "")
@@ -1588,15 +1587,15 @@ def normalize_invoice_jobcard_no(value):
 def duplicate_exists(job_card_no, reg_no=None, total_amount=None):
     """
     Duplicate rule:
-    Invoice No duplicate check venam.
-    Only Job Card Number full exact same irundha mattum duplicate.
+    First Excel sheet-la invoices sheet check pannum.
+    Only Job Card Number exact full same irundha mattum duplicate.
 
-    Examples:
-    Existing Job Card: 67381-03-RJC-0526-328
-    New Job Card:      67381-03-RJC-0526-328 -> duplicate
+    67381-03-RJC-0526-328 == 67381-03-RJC-0526-328 -> duplicate
+    67381-03-RJC-0526-328 != 67381-03-RJC-0526-329 -> not duplicate
 
-    Existing Job Card: 67381-03-RJC-0526-328
-    New Job Card:      67381-03-RJC-0526-329 -> not duplicate
+    Invoice Number compare pannaadhu.
+    Pending approval sheet compare pannaadhu.
+    Blank/invalid rows ignore pannum.
     """
     new_no = normalize_invoice_jobcard_no(job_card_no)
     if not new_no:
@@ -1607,24 +1606,30 @@ def duplicate_exists(job_card_no, reg_no=None, total_amount=None):
     except Exception:
         return False
 
-    if inv.empty:
+    if inv.empty or "Job Card Number" not in inv.columns:
         return False
 
-    if "Job Card Number" not in inv.columns:
+    existing = inv["Job Card Number"].astype(str).apply(normalize_invoice_jobcard_no)
+    existing = existing[existing.astype(str).str.len() > 0]
+
+    if existing.empty:
         return False
 
-    existing_numbers = (
-        inv["Job Card Number"]
-        .astype(str)
-        .apply(normalize_invoice_jobcard_no)
-    )
+    return bool((existing == new_no).any())
 
-    existing_numbers = existing_numbers[existing_numbers.astype(str).str.len() > 0]
 
-    if existing_numbers.empty:
-        return False
-
-    return bool((existing_numbers == new_no).any())
+def get_existing_jobcards_list():
+    """
+    Admin/debug use only: returns clean existing jobcards from invoices sheet.
+    """
+    try:
+        inv = read_sheet("invoices")
+        if inv.empty or "Job Card Number" not in inv.columns:
+            return []
+        existing = inv["Job Card Number"].astype(str).apply(normalize_invoice_jobcard_no)
+        return existing[existing.astype(str).str.len() > 0].tolist()
+    except Exception:
+        return []
 
 
 def create_pending_invoice_request(data):
@@ -1645,8 +1650,7 @@ def create_pending_invoice_request(data):
         "Bike Model": clean_bike_model(data.get("Bike Model", "")),
         "Labour Amount": data.get("Labour Amount", 0),
         "Spare Parts Count": data.get("Spare Parts Count", 0),
-        "Oil Count": data.get("Oil Count", 0),
-        "Oil Details": data.get("Oil Details", ""),
+        "Oil Change Status": data.get("Oil Change Status", "No"),
         "Total Amount": data.get("Total Amount", 0),
         "Entry Type": "Duplicate Approval Request",
         "Request Status": "Pending",
@@ -1668,8 +1672,7 @@ def save_invoice_entry_from_data(data, entry_type="OCR Upload"):
         "Bike Model": clean_bike_model(data.get("Bike Model", "")),
         "Labour Amount": data.get("Labour Amount", 0),
         "Spare Parts Count": data.get("Spare Parts Count", 0),
-        "Oil Count": data.get("Oil Count", 0),
-        "Oil Details": data.get("Oil Details", ""),
+        "Oil Change Status": data.get("Oil Change Status", "No"),
         "Total Amount": data.get("Total Amount", 0),
         "Entry Type": entry_type,
         "Status": "Active"
@@ -1684,6 +1687,130 @@ def processing_wait_3s(message="Processing entry"):
         box.info(f"{message}... Please wait {sec} seconds.")
         time_module.sleep(1)
     box.empty()
+
+
+
+def generate_daily_technician_report_pdf(df, report_date, technician_name="All Technicians"):
+    """
+    Professional daily technician service report PDF.
+    HERO text logo + SELVA MOTORS header.
+    """
+    safe_tech = re.sub(r"[^A-Za-z0-9_-]", "_", str(technician_name or "All"))
+    safe_date = re.sub(r"[^0-9-]", "_", str(report_date))
+    pdf_path = PDF_DIR / f"daily_technician_service_report_{safe_tech}_{safe_date}.pdf"
+
+    total_entries = len(df)
+    total_labour = pd.to_numeric(df.get("Labour Amount", pd.Series([])), errors="coerce").fillna(0).sum() if not df.empty else 0
+    total_amount = pd.to_numeric(df.get("Total Amount", pd.Series([])), errors="coerce").fillna(0).sum() if not df.empty else 0
+
+    c = canvas.Canvas(str(pdf_path), pagesize=A4)
+    w, h = A4
+
+    # Header
+    c.setFillColor(colors.HexColor("#111827"))
+    c.rect(0, h - 95, w, 95, fill=True, stroke=False)
+
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 24)
+    c.drawString(38, h - 38, "HERO")
+    c.setFillColor(colors.HexColor("#22c55e"))
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(38, h - 61, "SELVA MOTORS")
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica", 8)
+    c.drawString(38, h - 78, "KATCHANAM MAIN ROAD, KILVELUR | Professional Service Report")
+
+    c.setFont("Helvetica-Bold", 15)
+    c.drawRightString(w - 38, h - 40, "Daily Technician Service Report")
+    c.setFont("Helvetica", 9)
+    c.drawRightString(w - 38, h - 60, f"Date: {report_date}")
+    c.drawRightString(w - 38, h - 76, f"Technician: {technician_name}")
+
+    # Summary cards
+    y = h - 128
+    card_w = 160
+    card_h = 52
+    cards = [
+        ("Vehicle Entries", str(total_entries)),
+        ("Labour Amount", f"Rs.{total_labour:.2f}"),
+        ("Total Amount", f"Rs.{total_amount:.2f}")
+    ]
+
+    x = 38
+    for label, value in cards:
+        c.setFillColor(colors.HexColor("#F8FAFC"))
+        c.roundRect(x, y - card_h, card_w, card_h, 12, fill=True, stroke=False)
+        c.setFillColor(colors.HexColor("#64748B"))
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(x + 12, y - 18, label)
+        c.setFillColor(colors.HexColor("#0F172A"))
+        c.setFont("Helvetica-Bold", 13)
+        c.drawString(x + 12, y - 38, value)
+        x += card_w + 18
+
+    y -= 90
+
+    c.setFillColor(colors.HexColor("#0F172A"))
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(38, y, "Entry Details")
+    y -= 18
+
+    # Table header
+    headers = ["S.No", "Technician", "Job Card", "Reg No", "Bike Model", "Labour", "Total"]
+    widths = [32, 82, 105, 75, 100, 60, 60]
+    x_positions = [38]
+    for width in widths[:-1]:
+        x_positions.append(x_positions[-1] + width)
+
+    c.setFillColor(colors.HexColor("#111827"))
+    c.rect(38, y - 4, sum(widths), 20, fill=True, stroke=False)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 7)
+
+    for i, head in enumerate(headers):
+        c.drawString(x_positions[i] + 3, y + 2, head)
+
+    y -= 20
+    c.setFont("Helvetica", 7)
+    c.setFillColor(colors.black)
+
+    if df.empty:
+        c.drawString(38, y, "No service entries found.")
+    else:
+        show_df = df.copy().reset_index(drop=True)
+        for idx, row in show_df.iterrows():
+            if y < 70:
+                c.showPage()
+                y = h - 50
+                c.setFont("Helvetica", 7)
+
+            vals = [
+                str(idx + 1),
+                str(row.get("Technician Name", ""))[:15],
+                str(row.get("Job Card Number", ""))[:22],
+                str(row.get("Registration Number", ""))[:12],
+                str(row.get("Bike Model", ""))[:18],
+                f"Rs.{to_float(row.get('Labour Amount', 0)):.0f}",
+                f"Rs.{to_float(row.get('Total Amount', 0)):.0f}",
+            ]
+
+            if idx % 2 == 0:
+                c.setFillColor(colors.HexColor("#F8FAFC"))
+                c.rect(38, y - 5, sum(widths), 16, fill=True, stroke=False)
+                c.setFillColor(colors.black)
+
+            for i, val in enumerate(vals):
+                c.drawString(x_positions[i] + 3, y, val)
+            y -= 16
+
+    # Footer
+    c.setFont("Helvetica-Bold", 9)
+    c.setFillColor(colors.HexColor("#0F172A"))
+    c.drawString(38, 40, "For SELVA MOTORS")
+    c.drawRightString(w - 38, 40, "Generated by Selva Motors ERP")
+    c.save()
+
+    return str(pdf_path)
 
 
 # ============================================================
@@ -2316,7 +2443,7 @@ def page_upload_invoice():
     <div class="invoice-preview-pro">
         <div class="invoice-preview-head">
             <h2>OCR Entry Preview {dup_badge}</h2>
-            <p>View-only clean data. Excel save happens only after proceed / Admin approval.</p>
+            <p>View-only clean data. Spare item names and oil item names are hidden. Excel save happens only after proceed / Admin approval.</p>
         </div>
         <div class="invoice-preview-body">
             <div class="invoice-field"><b>Invoice / Job Card No</b><span>{data.get("Invoice Number", "")}</span></div>
@@ -2325,9 +2452,7 @@ def page_upload_invoice():
             <div class="invoice-field"><b>Total Amount</b><span>₹{data.get("Total Amount", 0)}</span></div>
             <div class="invoice-field"><b>Labour Amount</b><span>₹{data.get("Labour Amount", 0)}</span></div>
             <div class="invoice-field"><b>Spare Parts Count</b><span>{data.get("Spare Parts Count", 0)}</span></div>
-            <div class="invoice-field"><b>Oil Count</b><span>{data.get("Oil Count", 0)}</span></div>
-            <div class="invoice-field"><b>Oil Details</b><span>{data.get("Oil Details", "-")}</span></div>
-            <div class="invoice-field"><b>Spare Items</b><span>{data.get("Spare Items Preview", "-")}</span></div>
+            <div class="invoice-field"><b>Oil Change Status</b><span>{data.get("Oil Change Status", "No")}</span></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2339,9 +2464,7 @@ def page_upload_invoice():
         "Bike Model": data.get("Bike Model", ""),
         "Labour Amount": data.get("Labour Amount", 0),
         "Spare Parts Count": data.get("Spare Parts Count", 0),
-        "Oil Count": data.get("Oil Count", 0),
-        "Oil Details": data.get("Oil Details", ""),
-        "Spare Items Preview": data.get("Spare Items Preview", "-"),
+        "Oil Change Status": data.get("Oil Change Status", "No"),
         "Total Amount": data.get("Total Amount", 0),
         "Entry Type": "OCR Upload",
         "Status": "Active"
@@ -2360,10 +2483,12 @@ def page_upload_invoice():
     job_card_clean = normalize_invoice_jobcard_no(data.get("Job Card Number", ""))
     duplicate = duplicate_exists(job_card_clean) if job_card_clean else False
 
+    st.caption("Excel Job Card Check: App checks existing invoices sheet first. Duplicate shows only if same full Job Card Number already exists.")
+
     if duplicate:
         st.markdown(f"""
         <div class="approve-box">
-            <h3 style="margin:0;color:#991b1b;">Duplicate Invoice / Job Card Detected</h3>
+            <h3 style="margin:0;color:#991b1b;">Duplicate Job Card Detected</h3>
             <p style="margin:8px 0 0 0;color:#334155;">
                 Same Job Card Number already exists in Excel: <b>{job_card_clean}</b><br>
                 This entry will not be saved directly. Admin approval request will be created.
@@ -2474,6 +2599,43 @@ def page_reports():
     c1.metric("Vehicle Entries", total_entries)
     c2.metric("Total Revenue", f"₹{total_revenue:,.0f}")
     c3.metric("Labour Amount", f"₹{total_labour:,.0f}")
+
+    st.divider()
+    st.markdown("<div class='section-title'>Daily Technician Service Report PDF</div>", unsafe_allow_html=True)
+
+    report_date = st.text_input("Daily Report Date DD-MM-YYYY", value=today_str(), key="daily_report_date")
+    daily_df = invoices[invoices["Date"].astype(str) == report_date]
+
+    tech_options = ["All Technicians"]
+    if not daily_df.empty and "Technician Name" in daily_df.columns:
+        tech_options += sorted([x for x in daily_df["Technician Name"].astype(str).unique().tolist() if x.strip()])
+
+    selected_daily_tech = st.selectbox("Select Technician for Daily PDF", tech_options, key="daily_report_tech")
+
+    if selected_daily_tech != "All Technicians":
+        daily_df = daily_df[daily_df["Technician Name"].astype(str) == selected_daily_tech]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Daily Entries", len(daily_df))
+    c2.metric("Daily Labour", f"₹{pd.to_numeric(daily_df.get('Labour Amount', pd.Series([])), errors='coerce').fillna(0).sum():,.0f}")
+    c3.metric("Daily Total", f"₹{pd.to_numeric(daily_df.get('Total Amount', pd.Series([])), errors='coerce').fillna(0).sum():,.0f}")
+
+    if st.button("Generate Daily Technician Report PDF", use_container_width=True):
+        daily_pdf = generate_daily_technician_report_pdf(daily_df, report_date, selected_daily_tech)
+        st.session_state["daily_technician_report_pdf"] = daily_pdf
+        st.success("Daily technician service report PDF generated.")
+
+    if st.session_state.get("daily_technician_report_pdf"):
+        daily_pdf_path = st.session_state["daily_technician_report_pdf"]
+        if Path(daily_pdf_path).exists():
+            with open(daily_pdf_path, "rb") as f:
+                st.download_button(
+                    "Download Daily Technician Service Report PDF",
+                    f,
+                    file_name=Path(daily_pdf_path).name,
+                    mime="application/pdf",
+                    use_container_width=True
+                )
 
     st.divider()
 
