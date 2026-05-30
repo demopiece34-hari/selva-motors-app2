@@ -82,33 +82,6 @@ ALLOWED_RADIUS_METER = 400
 
 
 # ============================================================
-# SAFE STREAMLIT HELPERS
-# ============================================================
-def safe_get_secret(key, default=None):
-    """Read Streamlit secrets safely. Prevents app crash when secrets are not configured."""
-    try:
-        return st.secrets.get(key, default)
-    except Exception:
-        return default
-
-
-def safe_has_secret(key):
-    try:
-        return key in st.secrets
-    except Exception:
-        return False
-
-
-def app_rerun():
-    """Compatible rerun for old/new Streamlit versions."""
-    try:
-        app_rerun()
-    except AttributeError:
-        st.experimental_rerun()
-
-
-
-# ============================================================
 # STYLE
 # ============================================================
 st.markdown("""
@@ -863,100 +836,6 @@ hr {
     .erp-card-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
 }
 
-
-/* ===== SELVA MOTORS PRO ERP UI V3 ===== */
-.pro-alert-bar {
-    display:grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap:12px;
-    margin: 10px 0 18px 0;
-}
-.pro-alert {
-    padding:14px;
-    border-radius:20px;
-    background: rgba(255,255,255,.95);
-    border: 1px solid #e2e8f0;
-    box-shadow: 0 14px 34px rgba(15,23,42,.08);
-}
-.pro-alert b { color:#0f172a; display:block; font-size:15px; }
-.pro-alert span { color:#64748b; font-size:12px; font-weight:800; }
-.quick-action-grid {
-    display:grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap:14px;
-    margin:16px 0;
-}
-.quick-action {
-    background: linear-gradient(135deg, #ffffff, #f0fdf4);
-    border: 1px solid #bbf7d0;
-    border-radius: 24px;
-    padding: 18px;
-    box-shadow: 0 16px 38px rgba(15,23,42,.08);
-}
-.quick-action h3 {
-    margin:0;
-    font-size:18px;
-    font-weight:900;
-    color:#0f172a;
-}
-.quick-action p {
-    margin:7px 0 0 0;
-    color:#64748b;
-    font-size:13px;
-    font-weight:700;
-}
-.stepper {
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    margin: 12px 0 18px 0;
-}
-.step {
-    padding:9px 12px;
-    border-radius:999px;
-    background:#e2e8f0;
-    color:#334155;
-    font-size:12px;
-    font-weight:900;
-}
-.step.active { background:#dcfce7; color:#166534; }
-.step.warn { background:#fef3c7; color:#92400e; }
-.timeline {
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    margin: 10px 0;
-}
-.timeline span {
-    padding:8px 11px;
-    border-radius:999px;
-    background:#dbeafe;
-    color:#1e40af;
-    font-size:12px;
-    font-weight:900;
-}
-.theme-note {
-    padding: 14px;
-    border-radius: 20px;
-    background: linear-gradient(135deg, #020617, #052e16);
-    color: white;
-    margin-bottom: 14px;
-    box-shadow: 0 16px 36px rgba(15,23,42,.18);
-}
-.print-card {
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 24px;
-    padding: 16px;
-    box-shadow: 0 14px 32px rgba(15,23,42,.08);
-    margin: 12px 0;
-}
-@media (max-width: 900px) {
-    .pro-alert-bar, .quick-action-grid {
-        grid-template-columns: repeat(1, minmax(0, 1fr));
-    }
-}
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -1107,7 +986,7 @@ def google_sheet_client():
         return None, "gspread/google-auth not installed. Add gspread and google-auth in requirements.txt"
 
     try:
-        if not safe_has_secret("gcp_service_account"):
+        if "gcp_service_account" not in st.secrets:
             return None, "Streamlit secrets missing: gcp_service_account"
 
         scope = [
@@ -1116,7 +995,7 @@ def google_sheet_client():
         ]
 
         creds = Credentials.from_service_account_info(
-            safe_get_secret("gcp_service_account", {}),
+            st.secrets["gcp_service_account"],
             scopes=scope
         )
         client = gspread.authorize(creds)
@@ -1144,7 +1023,7 @@ def is_google_auto_sync_enabled():
     Google Sheet auto store will work only when Streamlit secrets are configured.
     Excel remains primary storage, Google Sheet is automatic cloud copy.
     """
-    return bool(safe_get_secret("SHEET_ID", "")) and safe_has_secret("gcp_service_account")
+    return bool(st.secrets.get("SHEET_ID", "")) and ("gcp_service_account" in st.secrets)
 
 
 def sync_single_excel_sheet_to_google_sheet(sheet_name):
@@ -1156,7 +1035,7 @@ def sync_single_excel_sheet_to_google_sheet(sheet_name):
         return False, "Google Sheet secrets not configured"
 
     try:
-        sheet_id = safe_get_secret("SHEET_ID", "")
+        sheet_id = st.secrets.get("SHEET_ID", "")
         client, err = google_sheet_client()
         if client is None:
             return False, err
@@ -1335,7 +1214,7 @@ def sync_all_excel_to_google():
     if not EXCEL_FILE.exists():
         return False, "Excel file not found. Save some data first."
 
-    sheet_id = safe_get_secret("SHEET_ID", "")
+    sheet_id = st.secrets.get("SHEET_ID", "")
     if not sheet_id:
         return False, "Streamlit secrets missing: SHEET_ID"
 
@@ -1393,7 +1272,7 @@ def login_user(user_id, password):
 
 
 def role():
-    return str(st.session_state.get("role", "")).strip()
+    return st.session_state.get("role", "")
 
 
 def is_admin():
@@ -2320,11 +2199,11 @@ def page_login():
             user = login_user(user_id, password)
             if user:
                 st.session_state["logged_in"] = True
-                st.session_state["user_id"] = str(user["User ID"]).strip()
-                st.session_state["employee_name"] = str(user["Employee Name"]).strip()
-                st.session_state["role"] = str(user["Role"]).strip()
+                st.session_state["user_id"] = user["User ID"]
+                st.session_state["employee_name"] = user["Employee Name"]
+                st.session_state["role"] = user["Role"]
                 st.success("Login success")
-                app_rerun()
+                st.rerun()
             else:
                 st.error("Invalid login")
 
@@ -2355,7 +2234,7 @@ def menu_page():
 
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.clear()
-        app_rerun()
+        st.rerun()
 
     if is_admin():
         pages = [
@@ -2511,77 +2390,11 @@ def status_pill(text, kind="ok"):
     return f"<span class='status-pill {cls}'>{text}</span>"
 
 
-
-def pro_alert_bar(items):
-    html = "<div class='pro-alert-bar'>"
-    for title, value in items:
-        html += f"<div class='pro-alert'><b>{title}</b><span>{value}</span></div>"
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
-
-
-def quick_action_grid(items):
-    html = "<div class='quick-action-grid'>"
-    for title, body, icon in items:
-        html += f"<div class='quick-action'><h3>{icon} {title}</h3><p>{body}</p></div>"
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
-
-
-def service_timeline():
-    st.markdown("""
-    <div class="timeline">
-        <span>Received</span>
-        <span>Work Started</span>
-        <span>Billing Done</span>
-        <span>Delivered</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def ocr_stepper(active="Ready"):
-    steps = ["Upload", "Reading", "Extracting", "Preview", "Save"]
-    html = "<div class='stepper'>"
-    for s in steps:
-        cls = "step active" if s == active else "step"
-        html += f"<span class='{cls}'>{s}</span>"
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
-
-
 # ============================================================
 # DASHBOARD
 # ============================================================
 def page_dashboard():
     page_hero("Service Control Dashboard", "Role-based Selva Motors ERP command center with clean revenue, service entries and approvals.", st.session_state.get("role", ""))
-
-    invoices_for_alert = read_sheet("invoices")
-    delete_for_alert = read_sheet("delete_requests")
-    pending_delete_count = 0
-    if not delete_for_alert.empty and "Request Status" in delete_for_alert.columns:
-        pending_delete_count = len(delete_for_alert[delete_for_alert["Request Status"].astype(str) == "Pending"])
-    today_count = 0
-    if not invoices_for_alert.empty and "Date" in invoices_for_alert.columns:
-        today_count = len(invoices_for_alert[invoices_for_alert["Date"].astype(str) == today_str()])
-
-    st.markdown("<div class='theme-note'><b>Pro ERP Notification Center</b><br>Live service alerts, today entries and approval status.</div>", unsafe_allow_html=True)
-    pro_alert_bar([
-        ("Today Vehicles", str(today_count)),
-        ("Pending Delete Requests", str(pending_delete_count)),
-        ("Google Sync", "3 min auto sync"),
-        ("Storage", "Cloud Excel")
-    ])
-
-    if is_technician():
-        quick_action_grid([
-            ("Mark Attendance", "GPS auto attendance", "📍"),
-            ("Upload Invoice", "OCR upload and preview", "📄"),
-            ("Today Entries", "View your entries", "🧾"),
-            ("Delete Request", "Request admin approval", "🗑️")
-        ])
-
-    service_timeline()
-
 
     invoices = read_sheet("invoices")
     attendance = read_sheet("attendance")
@@ -2762,7 +2575,7 @@ def page_attendance():
         ok, saved_dist = auto_save_attendance_from_gps(lat, lon)
         if ok:
             st.success(f"Attendance auto-marked successfully. Distance: {saved_dist} meter.")
-            app_rerun()
+            st.rerun()
         else:
             st.error("Attendance auto-save failed.")
     else:
@@ -2783,8 +2596,6 @@ def page_attendance():
 # ============================================================
 def page_upload_invoice():
     page_hero("AI Invoice OCR Upload", "Upload invoice, verify clean view-only preview, then proceed the entry.", "OCR")
-    ocr_stepper("Upload")
-    st.markdown("<div class='print-card'><b>Drop Hero Invoice PDF/Image here</b><br>Supported: PDF, JPG, JPEG, PNG, WEBP. OCR status: Upload → Reading → Extracting → Preview → Save.</div>", unsafe_allow_html=True)
     st.caption("OCR Preview is view-only. Duplicate blocking removed. Manager can find/delete duplicates later.")
 
     uploaded = st.file_uploader("Upload Invoice PDF / Image", type=["pdf", "jpg", "jpeg", "png", "webp"], key="invoice_uploader")
@@ -2811,7 +2622,6 @@ def page_upload_invoice():
 
     data = st.session_state["ocr_preview"]
 
-    ocr_stepper("Preview")
     st.markdown("<div class='section-title'>View Only OCR Preview</div>", unsafe_allow_html=True)
 
     dup_text = "Duplicate Check Pending"
@@ -2893,13 +2703,13 @@ def page_upload_invoice():
                 st.session_state.pop("ocr_preview", None)
                 st.warning(f"Duplicate detected. Admin approval request sent. Request ID: {request_id}")
                 st.info("Invoice will be stored in Excel only after Admin approves.")
-                app_rerun()
+                st.rerun()
             else:
                 save_invoice_entry_from_data(data, entry_type="OCR Upload")
                 processing_wait_3s("Please wait, Excel entry processing")
                 st.session_state.pop("ocr_preview", None)
                 st.success("Entry saved to Excel. Upload preview cleared.")
-                app_rerun()
+                st.rerun()
 
 
 # ============================================================
@@ -2907,7 +2717,6 @@ def page_upload_invoice():
 # ============================================================
 def page_reports():
     page_hero("Reports", "Generate all-technician or particular-technician PDF service reports.", "PDF")
-    st.markdown("<div class='print-card'><b>Print-friendly report center</b><br>Generate daily technician PDF, normal PDF and compact service views.</div>", unsafe_allow_html=True)
 
     invoices = read_sheet("invoices")
 
@@ -3235,7 +3044,7 @@ def admin_excel_data_manager():
 
     if st.button("Refresh Cloud Excel Data", use_container_width=True, key="refresh_cloud_excel_data"):
         st.cache_data.clear()
-        app_rerun()
+        st.rerun()
 
     sheet_name = st.selectbox(
         "Select Excel Sheet",
@@ -3265,16 +3074,10 @@ def admin_excel_data_manager():
     </div>
     """, unsafe_allow_html=True)
 
-    search_query = st.text_input("Search in selected sheet", key="cloud_excel_search_query")
-    display_df = df.copy()
-    if search_query:
-        mask = display_df.astype(str).apply(lambda col: col.str.contains(search_query, case=False, na=False)).any(axis=1)
-        display_df = display_df[mask]
-
-    if display_df.empty:
-        st.info("No data found.")
+    if df.empty:
+        st.info("This sheet has no data.")
     else:
-        st.dataframe(display_df, use_container_width=True)
+        st.dataframe(df, use_container_width=True)
 
     st.divider()
     st.subheader("Password Protected Edit / Delete")
@@ -3317,7 +3120,7 @@ def admin_excel_data_manager():
             append_row(sheet_name, new_row)
             st.cache_data.clear()
             st.success("New row added to Cloud Excel.")
-            app_rerun()
+            st.rerun()
 
     elif action == "Edit Row":
         if df.empty:
@@ -3355,7 +3158,7 @@ def admin_excel_data_manager():
             write_sheet(sheet_name, fresh_df)
             st.cache_data.clear()
             st.success("Row updated successfully in Cloud Excel.")
-            app_rerun()
+            st.rerun()
 
     elif action == "Delete Row":
         if df.empty:
@@ -3391,7 +3194,7 @@ def admin_excel_data_manager():
             write_sheet(sheet_name, fresh_df)
             st.cache_data.clear()
             st.success("Selected row deleted from Cloud Excel.")
-            app_rerun()
+            st.rerun()
 
     st.divider()
     st.subheader("Download Current Cloud Excel File")
@@ -3413,7 +3216,7 @@ def admin_excel_data_manager():
 # GOOGLE SHEET 3-MIN AUTO SYNC HELPERS
 # ============================================================
 def is_google_sync_configured():
-    return bool(safe_get_secret("SHEET_ID", "")) and safe_has_secret("gcp_service_account")
+    return bool(st.secrets.get("SHEET_ID", "")) and ("gcp_service_account" in st.secrets)
 
 
 def google_sync_state_default():
@@ -3488,7 +3291,7 @@ def google_sheet_client_for_sync():
             "https://www.googleapis.com/auth/drive"
         ]
         creds = Credentials.from_service_account_info(
-            safe_get_secret("gcp_service_account", {}),
+            st.secrets["gcp_service_account"],
             scopes=scope
         )
         client = gspread.authorize(creds)
@@ -3510,7 +3313,7 @@ def sync_one_sheet_to_google(sheet_name):
         return False, err
 
     try:
-        spreadsheet = client.open_by_key(safe_get_secret("SHEET_ID", ""))
+        spreadsheet = client.open_by_key(st.secrets["SHEET_ID"])
         df = read_sheet(sheet_name).fillna("").astype(str)
         ws = get_or_create_google_worksheet(
             spreadsheet,
@@ -3709,7 +3512,7 @@ def page_admin_panel():
                         })
                         st.success("Employee added.")
                     st.cache_data.clear()
-                    app_rerun()
+                    st.rerun()
 
     with tabs[2]:
         st.markdown("<div class='admin-tab-note'>Technician delete requests. Invoice deletes only after Admin approval.</div>", unsafe_allow_html=True)
@@ -3743,7 +3546,7 @@ def page_admin_panel():
                     write_sheet("delete_requests", req)
                     st.cache_data.clear()
                     st.success("Request approved and invoice deleted.")
-                    app_rerun()
+                    st.rerun()
 
                 if c2.button("Reject Request", key=f"reject_{idx}", use_container_width=True):
                     req.loc[idx, "Request Status"] = "Rejected"
@@ -3751,7 +3554,7 @@ def page_admin_panel():
                     write_sheet("delete_requests", req)
                     st.cache_data.clear()
                     st.warning("Request rejected.")
-                    app_rerun()
+                    st.rerun()
 
     with tabs[3]:
         st.markdown("<div class='admin-tab-note'>View, edit, add and delete rows from cloud Excel data. Password protected.</div>", unsafe_allow_html=True)
@@ -3793,7 +3596,7 @@ def page_admin_panel():
                 st.success(msg)
             else:
                 st.error(msg)
-            app_rerun()
+            st.rerun()
 
         if c_manual2.button("Manual Full Sync All Excel Data", use_container_width=True):
             with st.spinner("Full syncing all sheets to Google Sheet..."):
@@ -3802,7 +3605,7 @@ def page_admin_panel():
                 st.success(msg)
             else:
                 st.error(msg)
-            app_rerun()
+            st.rerun()
 
 
     with tabs[5]:
@@ -3828,95 +3631,100 @@ def page_admin_panel():
         elif pwd:
             st.error("Wrong password.")
 
-
 # ============================================================
-# MANAGER DUPLICATE UPLOAD FINDER
+# MANAGER EDIT
 # ============================================================
-def find_duplicate_upload_rows():
-    df = read_sheet("invoices")
-    if df.empty:
-        return pd.DataFrame(), pd.DataFrame()
+def page_manager_edit():
+    page_hero("Manager Edit", "Password protected entry status edit options.", "Protected")
 
-    work = df.copy()
-    if "Job Card Number" not in work.columns:
-        work["Job Card Number"] = ""
-
-    work["_clean_jobcard"] = work["Job Card Number"].astype(str).apply(normalize_invoice_jobcard_no)
-    work = work[work["_clean_jobcard"].astype(str).str.len() > 0].copy()
-
-    if work.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    dup_rows = work[work.duplicated("_clean_jobcard", keep=False)].copy()
-    if dup_rows.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    summary = (
-        dup_rows.groupby("_clean_jobcard")
-        .size()
-        .reset_index(name="Duplicate Count")
-        .rename(columns={"_clean_jobcard": "Job Card Number"})
-    )
-    dup_rows["Excel Row Number"] = dup_rows.index + 2
-    return summary, dup_rows
-
-
-def page_duplicate_upload_finder():
-    page_hero("Duplicate Upload Finder", "Manager can find duplicate Job Card uploads and delete selected rows directly from Excel.", "Manager")
-
-    if not is_manager():
-        st.error("Manager access only.")
+    pwd = st.text_input("Enter edit password", type="password")
+    if pwd != SECRET_PASSWORD:
+        if pwd:
+            st.error("Wrong password.")
+        st.info("Manager edit requires password.")
         return
 
-    st.warning("This page directly deletes selected duplicate invoice rows from Excel. Use carefully.")
+    st.success("Edit access granted.")
 
-    summary, dup_rows = find_duplicate_upload_rows()
+    invoices = read_sheet("invoices")
+    st.dataframe(invoices, use_container_width=True)
 
-    if summary.empty:
-        st.success("No duplicate Job Card uploads found.")
+    if invoices.empty:
         return
 
-    st.subheader("Duplicate Job Card Summary")
-    st.dataframe(summary, use_container_width=True)
+    entry_id = st.selectbox("Select Entry ID to edit status", invoices["Entry ID"].astype(str).tolist())
+    new_status = st.selectbox("New Status", ["Active", "Hold", "Completed", "Cancelled"])
 
-    st.subheader("Duplicate Invoice Rows")
-    show_cols = [
-        "Excel Row Number", "Entry ID", "Date", "Technician Name", "User ID",
-        "Invoice Number", "Job Card Number", "Registration Number", "Bike Model",
-        "Labour Amount", "Spare Parts Count", "Oil Change Status", "Total Amount",
-        "Entry Type", "Status"
-    ]
-    show_cols = [c for c in show_cols if c in dup_rows.columns]
-    st.dataframe(dup_rows[show_cols], use_container_width=True)
+    if st.button("Update Status"):
+        idx = invoices[invoices["Entry ID"].astype(str) == entry_id].index
+        if len(idx) > 0:
+            invoices.loc[idx[0], "Status"] = new_status
+            write_sheet("invoices", invoices)
+            st.success("Status updated.")
+            st.rerun()
 
-    st.divider()
-    st.subheader("Delete Duplicate Row")
 
-    selected_index = st.selectbox(
-        "Select duplicate row to delete",
-        dup_rows.index.tolist(),
-        format_func=lambda i: f"Excel Row {i+2} | Job Card: {dup_rows.loc[i, 'Job Card Number']} | Reg: {dup_rows.loc[i, 'Registration Number']}"
-    )
+# ============================================================
+# BACKUP OPTIONAL
+# ============================================================
+def make_backup_zip():
+    name = f"selva_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    path = BACKUP_DIR / name
 
-    st.dataframe(dup_rows.loc[[selected_index], show_cols], use_container_width=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        if EXCEL_FILE.exists():
+            z.write(EXCEL_FILE, EXCEL_FILE.name)
+        for pdf in PDF_DIR.glob("*.pdf"):
+            z.write(pdf, f"generated_reports/{pdf.name}")
 
-    confirm = st.text_input("Type DELETE to confirm direct Excel delete", key="manager_duplicate_delete_confirm")
+    return path
 
-    if st.button("Delete Selected Duplicate Row from Excel", use_container_width=True):
-        if confirm != "DELETE":
-            st.error("Type DELETE exactly to confirm.")
-            return
 
-        df = read_sheet("invoices")
-        if selected_index not in df.index:
-            st.error("Selected row not found. Refresh and try again.")
-            return
+# ============================================================
+# MAIN
+# ============================================================
+def main():
+    if not st.session_state.get("logged_in"):
+        page_login()
+        return
 
-        df = df.drop(index=selected_index).reset_index(drop=True)
-        write_sheet("invoices", df)
-        try:
-            st.cache_data.clear()
-        except Exception:
-            pass
-        st.success("Selected duplicate row deleted directly from Excel.")
-        app_rerun()
+
+    auto_sync_google_sheet_3min()
+
+    page = menu_page()
+
+    if page == "Dashboard":
+        page_dashboard()
+    elif page == "Attendance":
+        page_attendance()
+    elif page == "Upload Invoice":
+        page_upload_invoice()
+    elif page == "Reports":
+        page_reports()
+    elif page == "Search":
+        page_search()
+    elif page == "Customer Service History":
+        page_customer_service_history()
+    elif page == "Manual Invoice Generator":
+        page_manual_invoice()
+    elif page == "Delete Invoice Request":
+        page_delete_invoice_request()
+    elif page == "Admin Panel":
+        if is_admin():
+            page_admin_panel()
+        else:
+            st.error("Admin access only.")
+    elif page == "Duplicate Upload Finder":
+        if is_manager():
+            page_duplicate_upload_finder()
+        else:
+            st.error("Manager access only.")
+    elif page == "Manager Edit":
+        if is_manager():
+            page_manager_edit()
+        else:
+            st.error("Manager access only.")
+
+
+if __name__ == "__main__":
+    main()
