@@ -958,7 +958,7 @@ def write_sheet(sheet_name, df):
             data.to_excel(writer, sheet_name=name, index=False)
 
     # Fast mode:
-    # Save to Excel now, mark changed sheet for Google Sheet sync after 5 minutes.
+    # Save to Excel now, mark changed sheet for Google Sheet sync after 3 minutes.
     try:
         if "mark_sheet_dirty" in globals():
             mark_sheet_dirty(sheet_name)
@@ -1137,7 +1137,7 @@ def sync_dirty_sheets_to_google_sheet():
 
 def get_next_google_sync_wait_text():
     """
-    Returns readable waiting time for next 5-minute Google Sheet sync.
+    Returns readable waiting time for next 3-minute Google Sheet sync.
     """
     try:
         state = load_sync_state()
@@ -1148,7 +1148,7 @@ def get_next_google_sync_wait_text():
 
         last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
         now_ts = datetime.now().timestamp()
-        interval = 5 * 60
+        interval = 3 * 60
 
         if last_sync_ts == 0:
             return "Ready to sync now"
@@ -1180,10 +1180,10 @@ def get_sync_status_badge_text():
     return status
 
 
-def auto_sync_google_sheet_5min():
+def auto_sync_google_sheet_3min():
     """
     Excel save is instant and fast.
-    Google Sheet sync runs only once every 5 minutes when app opens/reruns.
+    Google Sheet sync runs only once every 3 minutes when app opens/reruns.
     """
     try:
         state = load_sync_state()
@@ -1194,7 +1194,7 @@ def auto_sync_google_sheet_5min():
 
         now_ts = datetime.now().timestamp()
         last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
-        sync_interval = 5 * 60
+        sync_interval = 3 * 60
 
         if now_ts - last_sync_ts < sync_interval:
             return
@@ -2771,7 +2771,8 @@ def page_reports():
         "Bike Model", "Labour Amount", "Total Amount", "Entry Type", "Status"
     ]
 
-    preview = invoices[show_cols] if not invoices.empty else invoices
+    existing_show_cols = [c for c in show_cols if c in invoices.columns]
+    preview = invoices[existing_show_cols] if (not invoices.empty and existing_show_cols) else invoices
     st.dataframe(preview, use_container_width=True)
 
     total_entries = len(invoices)
@@ -2867,7 +2868,11 @@ def page_search():
         "Spare Parts Count", "Oil Count", "Oil Details", "Total Amount",
         "Entry Type", "Status"
     ]
-    st.dataframe(result[safe_cols], use_container_width=True)
+    existing_cols = [c for c in safe_cols if c in result.columns]
+    if existing_cols:
+        st.dataframe(result[existing_cols], use_container_width=True)
+    else:
+        st.dataframe(result, use_container_width=True)
 
 
 # ============================================================
@@ -3211,6 +3216,7 @@ def admin_excel_data_manager():
 # ============================================================
 def page_admin_panel():
     page_hero("Admin Panel", "Cloud Excel control center: revenue, employees, delete requests, data manager and settings.", "Admin")
+    st.info("Google Sheet Auto Sync: 3 Minutes. Cloud Excel data save aagum; app active/rerun irundha Google Sheet update aagum.")
 
     premium_panel("Admin Control Center", "Clean admin access: reports, customer history, cloud Excel manager, employee control and settings.")
 
