@@ -4,6 +4,7 @@ import io
 import uuid
 import math
 import zipfile
+import time
 import json
 from pathlib import Path
 from datetime import datetime, time
@@ -514,6 +515,12 @@ SHEETS = {
         "Request ID", "Date", "Time", "Entry ID", "Technician Name",
         "User ID", "Reason", "Request Status", "Admin Action Date"
     ],
+    "pending_invoice_requests": [
+        "Request ID", "Date", "Time", "Technician Name", "User ID",
+        "Invoice Number", "Registration Number", "Bike Model",
+        "Labour Amount", "Spare Parts Count", "Oil Count", "Oil Details",
+        "Total Amount", "Entry Type", "Request Status", "Admin Action Date"
+    ],
     "manual_invoices": [
         "Manual Bill ID", "Date", "Technician Name", "User ID",
         "Customer Name", "Registration Number", "Bike Model",
@@ -604,7 +611,7 @@ def write_sheet(sheet_name, df):
             data.to_excel(writer, sheet_name=name, index=False)
 
     # Fast mode:
-    # Save to Excel now, mark changed sheet for Google Sheet sync after 30 minutes.
+    # Save to Excel now, mark changed sheet for Google Sheet sync after 5 minutes.
     try:
         if "mark_sheet_dirty" in globals():
             mark_sheet_dirty(sheet_name)
@@ -781,9 +788,9 @@ def sync_dirty_sheets_to_google_sheet():
 
 
 
-def get_next_sync_wait_text():
+def get_next_google_sync_wait_text():
     """
-    Returns readable waiting time for next 30-minute Google Sheet sync.
+    Returns readable waiting time for next 5-minute Google Sheet sync.
     """
     try:
         state = load_sync_state()
@@ -794,7 +801,7 @@ def get_next_sync_wait_text():
 
         last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
         now_ts = datetime.now().timestamp()
-        interval = 30 * 60
+        interval = 5 * 60
 
         if last_sync_ts == 0:
             return "Ready to sync now"
@@ -826,10 +833,10 @@ def get_sync_status_badge_text():
     return status
 
 
-def auto_sync_google_sheet_30min():
+def auto_sync_google_sheet_5min():
     """
     Excel save is instant and fast.
-    Google Sheet sync runs only once every 30 minutes when app opens/reruns.
+    Google Sheet sync runs only once every 5 minutes when app opens/reruns.
     """
     try:
         state = load_sync_state()
@@ -840,9 +847,9 @@ def auto_sync_google_sheet_30min():
 
         now_ts = datetime.now().timestamp()
         last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
-        thirty_minutes = 30 * 60
+        sync_interval = 5 * 60
 
-        if now_ts - last_sync_ts < thirty_minutes:
+        if now_ts - last_sync_ts < sync_interval:
             return
 
         sync_dirty_sheets_to_google_sheet()
@@ -893,75 +900,6 @@ def sync_excel_to_google_sheet():
     except Exception as e:
         return False, str(e)
 
-
-
-
-# ============================================================
-# AUTO BACKUP CHECK - 10 PM
-# Note: Streamlit cannot run a true background job by itself.
-# This check runs whenever app opens/reruns after 10 PM.
-# It syncs only once per date.
-# ============================================================
-def get_setting_value(key, default=""):
-    try:
-        df = read_sheet("settings")
-        match = df[df["Key"].astype(str) == str(key)]
-        if match.empty:
-            return default
-        return str(match.iloc[0]["Value"])
-    except Exception:
-        return default
-
-
-def set_setting_value(key, value):
-    df = read_sheet("settings")
-    if (df["Key"].astype(str) == str(key)).any():
-        idx = df[df["Key"].astype(str) == str(key)].index[0]
-        df.loc[idx, "Value"] = str(value)
-        write_sheet("settings", df)
-    else:
-        append_row("settings", {
-            "Key": key,
-            "Value": str(value)
-        })
-
-
-def auto_backup_check_10pm():
-    """
-    Auto sync Excel data to Google Sheet once per day after 10:00 PM.
-    Works when the Streamlit app is opened or rerun after 10 PM.
-    """
-    try:
-        now = datetime.now()
-        today_key = now.strftime("%d-%m-%Y")
-        current_minutes = now.hour * 60 + now.minute
-        backup_minutes = 22 * 60  # 10:00 PM
-
-        if current_minutes < backup_minutes:
-            return
-
-        last_backup_date = get_setting_value("Last Auto Backup Date", "")
-
-        if last_backup_date == today_key:
-            return
-
-        ok, msg = sync_excel_to_google_sheet()
-
-        if ok:
-            set_setting_value("Last Auto Backup Date", today_key)
-            set_setting_value("Last Auto Backup Time", now.strftime("%I:%M:%S %p"))
-            set_setting_value("Last Auto Backup Status", "Success")
-            set_setting_value("Last Auto Backup Message", msg[:500])
-        else:
-            set_setting_value("Last Auto Backup Status", "Failed")
-            set_setting_value("Last Auto Backup Message", msg[:500])
-
-    except Exception as e:
-        try:
-            set_setting_value("Last Auto Backup Status", "Failed")
-            set_setting_value("Last Auto Backup Message", str(e)[:500])
-        except Exception:
-            pass
 
 
 
@@ -1463,26 +1401,72 @@ def parse_invoice(text):
     }
 
 
-def duplicate_exists(invoice_no, reg_no, total_amount):
+def duplicate_exists(invoice_no, reg_no=None, total_amount=None):
+    """
+    Duplicate rule:
+    If the same Invoice Number / Job Card Number already exists in Excel invoices,
+    do not save directly. Send Admin approval request.
+    """
     inv = read_sheet("invoices")
     if inv.empty:
         return False
 
+    invoice_no = str(invoice_no or "").strip().upper()
     if invoice_no:
-        same_invoice = inv["Invoice Number"].astype(str).str.upper() == str(invoice_no).upper()
+        same_invoice = inv["Invoice Number"].astype(str).str.strip().str.upper() == invoice_no
         if same_invoice.any():
             return True
 
-    if reg_no and float(total_amount or 0) > 0:
-        amount_series = pd.to_numeric(inv["Total Amount"], errors="coerce").fillna(0)
-        same_vehicle_amount = (
-            (inv["Registration Number"].astype(str).str.upper() == str(reg_no).upper()) &
-            (amount_series == float(total_amount))
-        )
-        if same_vehicle_amount.any():
-            return True
-
     return False
+
+
+
+def create_pending_invoice_request(data):
+    """
+    Store duplicate invoice entry as Admin approval request.
+    It will not be saved into invoices until Admin approves.
+    """
+    request_id = "PIR-" + uuid.uuid4().hex[:8].upper()
+    append_row("pending_invoice_requests", {
+        "Request ID": request_id,
+        "Date": today_str(),
+        "Time": time_str(),
+        "Technician Name": st.session_state.get("employee_name", ""),
+        "User ID": st.session_state.get("user_id", ""),
+        "Invoice Number": data.get("Invoice Number", ""),
+        "Registration Number": data.get("Registration Number", ""),
+        "Bike Model": clean_bike_model(data.get("Bike Model", "")),
+        "Labour Amount": data.get("Labour Amount", 0),
+        "Spare Parts Count": data.get("Spare Parts Count", 0),
+        "Oil Count": data.get("Oil Count", 0),
+        "Oil Details": data.get("Oil Details", ""),
+        "Total Amount": data.get("Total Amount", 0),
+        "Entry Type": "Duplicate Approval Request",
+        "Request Status": "Pending",
+        "Admin Action Date": ""
+    })
+    return request_id
+
+
+def save_invoice_entry_from_data(data, entry_type="OCR Upload"):
+    entry_id = "E-" + uuid.uuid4().hex[:8].upper()
+    append_row("invoices", {
+        "Entry ID": entry_id,
+        "Date": today_str(),
+        "Technician Name": st.session_state.get("employee_name", data.get("Technician Name", "")),
+        "User ID": st.session_state.get("user_id", data.get("User ID", "")),
+        "Invoice Number": data.get("Invoice Number", ""),
+        "Registration Number": data.get("Registration Number", ""),
+        "Bike Model": clean_bike_model(data.get("Bike Model", "")),
+        "Labour Amount": data.get("Labour Amount", 0),
+        "Spare Parts Count": data.get("Spare Parts Count", 0),
+        "Oil Count": data.get("Oil Count", 0),
+        "Oil Details": data.get("Oil Details", ""),
+        "Total Amount": data.get("Total Amount", 0),
+        "Entry Type": entry_type,
+        "Status": "Active"
+    })
+    return entry_id
 
 
 # ============================================================
@@ -1550,7 +1534,6 @@ def generate_manual_bill_pdf(customer_name, reg_no, bike_model, spare_rows, labo
     pdf_path = PDF_DIR / f"{bill_id}.pdf"
 
     technician_name = st.session_state.get("employee_name", "")
-    user_id = st.session_state.get("user_id", "")
 
     customer_name = clean_customer_name(customer_name)
     reg_no = clean_reg_no(reg_no)
@@ -1568,44 +1551,70 @@ def generate_manual_bill_pdf(customer_name, reg_no, bike_model, spare_rows, labo
     c = canvas.Canvas(str(pdf_path), pagesize=A4)
     w, h = A4
 
-    c.setFont("Helvetica-Bold", 18)
-    c.drawString(40, h - 45, "Manual Bill")
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(40, h - 65, "SELVA MOTORS - HERO SERVICE BILL STYLE")
-    c.line(40, h - 78, w - 40, h - 78)
+    # Header
+    c.setFillColor(colors.HexColor("#111827"))
+    c.rect(0, h - 92, w, 92, fill=True, stroke=False)
 
-    c.setFont("Helvetica", 10)
-    c.drawString(40, h - 105, f"Bill ID: {bill_id}")
-    c.drawString(350, h - 105, f"Date: {today_str()}")
-    c.drawString(40, h - 125, f"Technician Name: {technician_name}")
-    c.drawString(350, h - 125, f"User ID: {user_id}")
+    # Simple professional HERO text logo
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(40, h - 38, "HERO")
+    c.setFillColor(colors.HexColor("#22c55e"))
+    c.setFont("Helvetica-Bold", 13)
+    c.drawString(40, h - 60, "SELVA MOTORS")
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica", 9)
+    c.drawString(40, h - 76, "Authorised Service Bill")
 
-    c.drawString(40, h - 155, f"Customer Name: {customer_name}")
-    c.drawString(40, h - 175, f"Registration Number: {reg_no}")
-    c.drawString(350, h - 175, f"Bike Model: {bike_model}")
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 16)
+    c.drawRightString(w - 40, h - 40, "Manual Bill")
+    c.setFont("Helvetica", 9)
+    c.drawRightString(w - 40, h - 60, f"Bill ID: {bill_id}")
+    c.drawRightString(w - 40, h - 76, f"Date: {today_str()}")
 
-    y = h - 215
+    y = h - 125
+    c.setFillColor(colors.black)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(40, y, "Customer Details")
+    c.drawString(330, y, "Vehicle Details")
+    y -= 18
+
+    c.setFont("Helvetica", 9)
+    c.drawString(40, y, f"Customer Name: {customer_name}")
+    c.drawString(330, y, f"Registration Number: {reg_no}")
+    y -= 16
+    c.drawString(40, y, f"Technician Name: {technician_name}")
+    c.drawString(330, y, f"Bike Model: {bike_model}")
+
+    y -= 34
     c.setFont("Helvetica-Bold", 11)
     c.drawString(40, y, "Spare Parts Details")
     y -= 18
 
-    c.setFont("Helvetica-Bold", 9)
-    headers = [("S.No", 45), ("Spare Name", 90), ("Qty", 300), ("Rate", 360), ("Amount", 440)]
+    c.setFillColor(colors.HexColor("#111827"))
+    c.rect(40, y - 5, w - 80, 20, fill=True, stroke=False)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 8)
+    headers = [("S.No", 48), ("Spare Name", 95), ("Qty", 305), ("Rate", 365), ("Amount", 450)]
     for label, x in headers:
         c.drawString(x, y, label)
-    c.line(40, y - 5, w - 40, y - 5)
 
-    c.setFont("Helvetica", 9)
-    y -= 22
-    for i, row in enumerate(spare_rows, start=1):
+    y -= 24
+    c.setFillColor(colors.black)
+    c.setFont("Helvetica", 8)
+
+    serial = 1
+    for row in spare_rows:
         if not str(row["Spare Name"]).strip():
             continue
-        c.drawString(45, y, str(i))
-        c.drawString(90, y, str(row["Spare Name"])[:28])
-        c.drawString(300, y, str(row["Qty"]))
-        c.drawString(360, y, f"Rs.{float(row['Rate']):.2f}")
-        c.drawString(440, y, f"Rs.{float(row['Amount']):.2f}")
+        c.drawString(50, y, str(serial))
+        c.drawString(95, y, str(row["Spare Name"])[:32])
+        c.drawString(305, y, str(row["Qty"]))
+        c.drawString(365, y, f"Rs.{float(row['Rate']):.2f}")
+        c.drawString(450, y, f"Rs.{float(row['Amount']):.2f}")
         y -= 18
+        serial += 1
 
     y -= 10
     c.line(320, y, w - 40, y)
@@ -1615,14 +1624,20 @@ def generate_manual_bill_pdf(customer_name, reg_no, bike_model, spare_rows, labo
     y -= 18
     c.drawString(340, y, f"Labour Amount: Rs.{labour_amount:.2f}")
     y -= 22
-    c.setFont("Helvetica-Bold", 13)
+    c.setFillColor(colors.HexColor("#16a34a"))
+    c.setFont("Helvetica-Bold", 14)
     c.drawString(340, y, f"Grand Total: Rs.{total_amount:.2f}")
 
-    c.drawImage(qr_path, 45, 70, width=80, height=80)
+    c.drawImage(qr_path, 45, 70, width=78, height=78)
+    c.setFillColor(colors.black)
     c.setFont("Helvetica", 8)
     c.drawString(45, 55, "QR Verification")
-    c.drawString(350, 90, "Technician Signature")
-    c.line(350, 75, 520, 75)
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(360, 95, "For SELVA MOTORS")
+    c.line(360, 78, 520, 78)
+    c.setFont("Helvetica", 8)
+    c.drawString(390, 63, "Authorised Signatory")
 
     c.save()
 
@@ -1630,7 +1645,7 @@ def generate_manual_bill_pdf(customer_name, reg_no, bike_model, spare_rows, labo
         "Manual Bill ID": bill_id,
         "Date": today_str(),
         "Technician Name": technician_name,
-        "User ID": user_id,
+        "User ID": "",
         "Customer Name": customer_name,
         "Registration Number": reg_no,
         "Bike Model": bike_model,
@@ -1851,7 +1866,7 @@ def page_dashboard():
         with q1:
             quick_card("Upload Invoice", "OCR upload and view-only preview before entry.", "📄")
         with q2:
-            quick_card("Manual Bill", "Generate Hero-style bill with technician name.", "🧾")
+            quick_card("Manual Bill", "Generate Professional bill with technician name.", "🧾")
         with q3:
             quick_card("Delete Request", "Request Admin approval for invoice deletion.", "🗑️")
 
@@ -2015,14 +2030,20 @@ def page_attendance():
 # UPLOAD INVOICE
 # ============================================================
 def page_upload_invoice():
-    page_hero("Invoice OCR Upload", "Upload invoice, verify view-only extracted values and proceed the entry.", "OCR")
-    st.caption("OCR Preview is view-only. Values are cleaned before Excel save. Raw OCR text is not saved.")
+    page_hero("AI Invoice OCR Upload", "Upload invoice, verify clean view-only preview, then proceed the entry.", "OCR")
+    st.caption("OCR Preview is view-only. Duplicate invoice number will go to Admin approval request.")
 
-    uploaded = st.file_uploader("Upload Invoice PDF / Image", type=["pdf", "jpg", "jpeg", "png", "webp"])
+    uploaded = st.file_uploader("Upload Invoice PDF / Image", type=["pdf", "jpg", "jpeg", "png", "webp"], key="invoice_uploader")
 
     if uploaded:
         file_path = save_uploaded_file(uploaded)
         text = extract_invoice_text(file_path)
+
+        # Source file should not be kept after OCR parse
+        try:
+            Path(file_path).unlink(missing_ok=True)
+        except Exception:
+            pass
 
         if not text.strip():
             st.error("OCR text not detected. For scanned PDF/image, install Tesseract OCR or upload clearer file.")
@@ -2031,52 +2052,31 @@ def page_upload_invoice():
         parsed = parse_invoice(text)
         st.session_state["ocr_preview"] = parsed
 
-    if st.button("Use Sample Invoice Data"):
-        st.session_state["ocr_preview"] = {
-            "Customer Name": "",
-            "Invoice Number": "67381-03-RJC-1225-1094",
-            "Registration Number": "TN51AT6661",
-            "Bike Model": "Splendor Plus",
-            "Labour Amount": 1906.88,
-            "Spare Parts Count": 5,
-            "Oil Count": 1,
-            "Oil Details": "Hero 4T PLUS",
-            "Spare Items Preview": "Hero 4T PLUS; Oil Filter",
-            "Total Amount": 7811,
-        }
-
     if "ocr_preview" not in st.session_state:
         return
 
     data = st.session_state["ocr_preview"]
 
     st.markdown("<div class='section-title'>View Only OCR Preview</div>", unsafe_allow_html=True)
-    st.markdown(f"""
-    <div class="glow-card">
-        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-            <div><b>Invoice</b><br><span style="color:#16a34a;font-weight:900;">{data.get("Invoice Number", "")}</span></div>
-            <div><b>Registration</b><br><span style="color:#0f172a;font-weight:900;">{data.get("Registration Number", "")}</span></div>
-            <div><b>Bike Model</b><br><span style="color:#0f172a;font-weight:900;">{data.get("Bike Model", "")}</span></div>
-            <div><b>Total</b><br><span style="color:#16a34a;font-weight:900;">₹{data.get("Total Amount", 0)}</span></div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+
     st.markdown(f"""
     <div class="bill-preview">
         <h2>OCR Entry Preview</h2>
         <div class="subtle">View-only cleaned values. Unwanted OCR data is not saved.</div>
         <div class="preview-grid">
-            <div class="preview-item"><b>Invoice Number</b><span>{data.get("Invoice Number", "")}</span></div>
+            <div class="preview-item"><b>Invoice / Job Card No</b><span>{data.get("Invoice Number", "")}</span></div>
             <div class="preview-item"><b>Registration Number</b><span>{data.get("Registration Number", "")}</span></div>
             <div class="preview-item"><b>Bike Model</b><span>{data.get("Bike Model", "")}</span></div>
             <div class="preview-item"><b>Total Amount</b><span>₹{data.get("Total Amount", 0)}</span></div>
             <div class="preview-item"><b>Labour Amount</b><span>₹{data.get("Labour Amount", 0)}</span></div>
             <div class="preview-item"><b>Spare Parts Count</b><span>{data.get("Spare Parts Count", 0)}</span></div>
             <div class="preview-item"><b>Oil Count</b><span>{data.get("Oil Count", 0)}</span></div>
-            <div class="preview-item"><b>Oil Details</b><span>{data.get("Oil Details", "")}</span></div>
+            <div class="preview-item"><b>Oil Details</b><span>{data.get("Oil Details", "-")}</span></div>
+            <div class="preview-item"><b>Spare Items</b><span>{data.get("Spare Items Preview", "-")}</span></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
+
     preview_df = pd.DataFrame([{
         "Invoice Number": data.get("Invoice Number", ""),
         "Registration Number": data.get("Registration Number", ""),
@@ -2101,40 +2101,29 @@ def page_upload_invoice():
         st.warning("Missing detected values: " + ", ".join(missing))
         st.info("Preview is view-only as per requirement. Upload a clearer invoice if values are missing.")
 
-    duplicate = duplicate_exists(
-        data.get("Invoice Number", ""),
-        data.get("Registration Number", ""),
-        data.get("Total Amount", 0)
-    )
+    duplicate = duplicate_exists(data.get("Invoice Number", ""))
     if duplicate:
-        st.error("Duplicate invoice/vehicle amount detected.")
+        st.error("Duplicate Invoice / Job Card Number detected. Direct Excel save is blocked. Admin approval required.")
 
     if st.button("Click to Proceed the Entry", use_container_width=True):
         if missing:
             st.error("Required values missing. Cannot proceed.")
             return
 
-        entry_id = "E-" + uuid.uuid4().hex[:8].upper()
-        append_row("invoices", {
-            "Entry ID": entry_id,
-            "Date": today_str(),
-            "Technician Name": st.session_state.get("employee_name", ""),
-            "User ID": st.session_state.get("user_id", ""),
-            "Invoice Number": data.get("Invoice Number", ""),
-            "Registration Number": data.get("Registration Number", ""),
-            "Bike Model": clean_bike_model(data.get("Bike Model", "")),
-            "Labour Amount": data.get("Labour Amount", 0),
-            "Spare Parts Count": data.get("Spare Parts Count", 0),
-            "Oil Count": data.get("Oil Count", 0),
-            "Oil Details": data.get("Oil Details", ""),
-            "Total Amount": data.get("Total Amount", 0),
-            "Entry Type": "OCR Upload",
-            "Status": "Active"
-        })
-
-        del st.session_state["ocr_preview"]
-        st.success("Entry saved to Excel.")
-        st.rerun()
+        with st.spinner("Please wait... Entry processing. Do not upload another file."):
+            if duplicate:
+                request_id = create_pending_invoice_request(data)
+                time.sleep(3)
+                st.session_state.pop("ocr_preview", None)
+                st.warning(f"Duplicate detected. Admin approval request sent. Request ID: {request_id}")
+                st.info("Invoice will be stored in Excel only after Admin approves.")
+                st.rerun()
+            else:
+                save_invoice_entry_from_data(data, entry_type="OCR Upload")
+                time.sleep(3)
+                st.session_state.pop("ocr_preview", None)
+                st.success("Entry saved to Excel. Upload preview cleared.")
+                st.rerun()
 
 
 # ============================================================
@@ -2292,8 +2281,8 @@ def page_customer_service_history():
 # MANUAL INVOICE GENERATOR
 # ============================================================
 def page_manual_invoice():
-    page_hero("Manual Bill", "Generate Hero-style manual service bill PDF with serial numbered spare rows.", "PDF Bill")
-    st.caption("Hero-style manual bill PDF. Technician name is taken from current logged-in user.")
+    page_hero("Manual Bill", "Generate professional manual service bill PDF with serial numbered spare rows.", "PDF Bill")
+    st.caption("Professional manual bill PDF. Technician name is taken from current logged-in user.")
 
     c1, c2 = st.columns(2)
     customer_name = c1.text_input("Customer Name")
@@ -2455,6 +2444,44 @@ def page_admin_panel():
                     st.success("Employee added.")
                 st.rerun()
 
+
+    st.divider()
+    st.subheader("Duplicate Invoice Approval Requests")
+    pir = read_sheet("pending_invoice_requests")
+    pending_pir = pir[pir["Request Status"].astype(str) == "Pending"]
+
+    if pending_pir.empty:
+        st.info("No pending duplicate invoice approval requests.")
+    else:
+        for pir_idx, pir_row in pending_pir.iterrows():
+            with st.container():
+                st.markdown(f"""
+                <div class="approve-box">
+                    <b>Request ID:</b> {pir_row['Request ID']}<br>
+                    <b>Invoice / Job Card No:</b> {pir_row['Invoice Number']}<br>
+                    <b>Technician:</b> {pir_row['Technician Name']}<br>
+                    <b>Vehicle:</b> {pir_row['Registration Number']} | {pir_row['Bike Model']}<br>
+                    <b>Total:</b> ₹{pir_row['Total Amount']}
+                </div>
+                """, unsafe_allow_html=True)
+
+                a1, a2 = st.columns(2)
+                if a1.button("Approve & Store Invoice", key=f"approve_pir_{pir_idx}"):
+                    save_invoice_entry_from_data(pir_row.to_dict(), entry_type="Admin Approved Duplicate")
+                    pir.loc[pir_idx, "Request Status"] = "Approved"
+                    pir.loc[pir_idx, "Admin Action Date"] = now_stamp()
+                    write_sheet("pending_invoice_requests", pir)
+                    st.success("Approved. Invoice stored in Excel.")
+                    st.rerun()
+
+                if a2.button("Reject Duplicate Request", key=f"reject_pir_{pir_idx}"):
+                    pir.loc[pir_idx, "Request Status"] = "Rejected"
+                    pir.loc[pir_idx, "Admin Action Date"] = now_stamp()
+                    write_sheet("pending_invoice_requests", pir)
+                    st.warning("Request rejected. Invoice not stored.")
+                    st.rerun()
+
+
     st.divider()
     st.subheader("Technician Delete Invoice Requests")
     req = read_sheet("delete_requests")
@@ -2495,22 +2522,22 @@ def page_admin_panel():
     st.dataframe(settings, use_container_width=True)
 
 
-    st.subheader("Auto Backup Status - 10 PM")
+    st.subheader("Google Sheet Backup Status")
     c1, c2, c3 = st.columns(3)
     c1.metric("Last Backup Date", get_setting_value("Last Auto Backup Date", "Not yet"))
     c2.metric("Last Backup Time", get_setting_value("Last Auto Backup Time", "Not yet"))
     c3.metric("Status", get_setting_value("Last Auto Backup Status", "Not yet"))
-    st.caption("Auto backup runs once per day after 10:00 PM when the app is opened or rerun.")
+    st.caption("Google Sheet sync updates changed sheets automatically every 5 minutes when the app is active.")
 
-    st.subheader("30 Minutes Auto Google Sheet Sync Status")
+    st.subheader("5 Minutes Auto Google Sheet Sync Status")
     if is_google_auto_sync_enabled():
-        st.success("30 minutes auto sync is ON. Excel saves instantly first; changed sheets sync to Google Sheet once every 30 minutes.")
+        st.success("5 minutes auto sync is ON. Excel saves instantly first; changed sheets sync to Google Sheet once every 5 minutes.")
     else:
-        st.warning("30 minutes auto sync is OFF. Add SHEET_ID and gcp_service_account in Streamlit Secrets.")
+        st.warning("5 minutes auto sync is OFF. Add SHEET_ID and gcp_service_account in Streamlit Secrets.")
 
     sync_state = load_sync_state()
     dirty_sheets = sync_state.get("dirty_sheets", [])
-    waiting_text = get_next_sync_wait_text()
+    waiting_text = get_next_google_sync_wait_text()
     badge_text = get_sync_status_badge_text()
 
     if dirty_sheets:
@@ -2629,7 +2656,6 @@ def main():
         page_login()
         return
 
-    auto_backup_check_10pm()
 
     page = menu_page()
 
