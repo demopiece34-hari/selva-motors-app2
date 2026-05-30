@@ -8,3 +8,6 @@ pdfplumber
 PyPDF2
 pytesseract
 streamlit-js-eval
+gspread
+google-auth
+``` [❶](code://python)
