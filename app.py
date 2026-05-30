@@ -4,11 +4,19 @@ import io
 import uuid
 import math
 import zipfile
+import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, time
 
 import streamlit as st
 import pandas as pd
+
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+except Exception:
+    gspread = None
+    Credentials = None
 from PIL import Image
 import qrcode
 
@@ -65,9 +73,10 @@ PDF_DIR.mkdir(exist_ok=True)
 BACKUP_DIR.mkdir(exist_ok=True)
 
 EXCEL_FILE = DATA_DIR / "selva_motors_excel_storage.xlsx"
+SYNC_STATE_FILE = DATA_DIR / "google_sync_state.json"
 
-COMPANY_LAT = 10.632085
-COMPANY_LON = 79.719209
+COMPANY_LAT = 10.759710
+COMPANY_LON = 79.742772
 ALLOWED_RADIUS_METER = 400
 
 
@@ -594,6 +603,14 @@ def write_sheet(sheet_name, df):
         for name, data in all_sheets.items():
             data.to_excel(writer, sheet_name=name, index=False)
 
+    # Fast mode:
+    # Save to Excel now, mark changed sheet for Google Sheet sync after 30 minutes.
+    try:
+        if "mark_sheet_dirty" in globals():
+            mark_sheet_dirty(sheet_name)
+    except Exception:
+        pass
+
 
 def append_row(sheet_name, row_dict):
     df = read_sheet(sheet_name)
@@ -603,6 +620,349 @@ def append_row(sheet_name, row_dict):
 
 
 create_excel_if_missing()
+
+
+
+# ============================================================
+# GOOGLE SHEET BACKUP SYNC
+# Primary storage is still Excel. Google Sheet is only backup/sync.
+# ============================================================
+def google_sheet_client():
+    if gspread is None or Credentials is None:
+        return None, "gspread/google-auth not installed. Add gspread and google-auth in requirements.txt"
+
+    try:
+        if "gcp_service_account" not in st.secrets:
+            return None, "Streamlit secrets missing: gcp_service_account"
+
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+
+        creds = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=scope
+        )
+        client = gspread.authorize(creds)
+        return client, ""
+    except Exception as e:
+        return None, str(e)
+
+
+def get_or_create_worksheet(spreadsheet, sheet_name, rows=1000, cols=30):
+    try:
+        return spreadsheet.worksheet(sheet_name)
+    except Exception:
+        return spreadsheet.add_worksheet(title=sheet_name, rows=rows, cols=cols)
+
+
+def dataframe_to_sheet_values(df):
+    clean_df = df.copy().fillna("")
+    clean_df = clean_df.astype(str)
+    return [clean_df.columns.tolist()] + clean_df.values.tolist()
+
+
+
+def is_google_auto_sync_enabled():
+    """
+    Google Sheet auto store will work only when Streamlit secrets are configured.
+    Excel remains primary storage, Google Sheet is automatic cloud copy.
+    """
+    return bool(st.secrets.get("SHEET_ID", "")) and ("gcp_service_account" in st.secrets)
+
+
+def sync_single_excel_sheet_to_google_sheet(sheet_name):
+    """
+    Sync only the changed Excel sheet to Google Sheet immediately after saving.
+    This is faster than syncing all sheets after every entry.
+    """
+    if not is_google_auto_sync_enabled():
+        return False, "Google Sheet secrets not configured"
+
+    try:
+        sheet_id = st.secrets.get("SHEET_ID", "")
+        client, err = google_sheet_client()
+        if client is None:
+            return False, err
+
+        spreadsheet = client.open_by_key(sheet_id)
+        df = read_sheet(sheet_name)
+
+        ws = get_or_create_worksheet(
+            spreadsheet,
+            sheet_name,
+            rows=max(len(df) + 20, 100),
+            cols=max(len(df.columns) + 5, 20)
+        )
+
+        ws.clear()
+        values = dataframe_to_sheet_values(df)
+        if values:
+            ws.update(values)
+
+        return True, f"{sheet_name} synced to Google Sheet"
+    except Exception as e:
+        return False, str(e)
+
+
+
+
+def load_sync_state():
+    try:
+        if SYNC_STATE_FILE.exists():
+            return json.loads(SYNC_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+
+    return {
+        "dirty_sheets": [],
+        "last_sync_ts": 0,
+        "last_sync_time": "Not yet",
+        "last_sync_status": "Not yet",
+        "last_sync_message": "",
+        "last_change_time": "Not yet"
+    }
+
+
+def save_sync_state(state):
+    try:
+        SYNC_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def mark_sheet_dirty(sheet_name):
+    state = load_sync_state()
+    dirty = set(state.get("dirty_sheets", []))
+    dirty.add(sheet_name)
+    state["dirty_sheets"] = sorted(list(dirty))
+    state["last_change_time"] = datetime.now().strftime("%d-%m-%Y %I:%M:%S %p")
+    save_sync_state(state)
+
+
+def sync_dirty_sheets_to_google_sheet():
+    state = load_sync_state()
+    dirty_sheets = state.get("dirty_sheets", [])
+
+    if not dirty_sheets:
+        return True, "No changed sheets to sync."
+
+    if not is_google_auto_sync_enabled():
+        return False, "Google Sheet secrets not configured."
+
+    synced = []
+    failed = []
+
+    for sheet_name in dirty_sheets:
+        ok, msg = sync_single_excel_sheet_to_google_sheet(sheet_name)
+        if ok:
+            synced.append(sheet_name)
+        else:
+            failed.append(f"{sheet_name}: {msg}")
+
+    now = datetime.now()
+
+    if failed:
+        state["last_sync_status"] = "Failed"
+        state["last_sync_message"] = "; ".join(failed)[:500]
+        state["last_sync_time"] = now.strftime("%d-%m-%Y %I:%M:%S %p")
+        save_sync_state(state)
+        return False, state["last_sync_message"]
+
+    state["dirty_sheets"] = []
+    state["last_sync_ts"] = now.timestamp()
+    state["last_sync_time"] = now.strftime("%d-%m-%Y %I:%M:%S %p")
+    state["last_sync_status"] = "Success"
+    state["last_sync_message"] = "Synced sheets: " + ", ".join(synced)
+    save_sync_state(state)
+
+    return True, state["last_sync_message"]
+
+
+
+def get_next_sync_wait_text():
+    """
+    Returns readable waiting time for next 30-minute Google Sheet sync.
+    """
+    try:
+        state = load_sync_state()
+        dirty_sheets = state.get("dirty_sheets", [])
+
+        if not dirty_sheets:
+            return "No pending sync"
+
+        last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
+        now_ts = datetime.now().timestamp()
+        interval = 30 * 60
+
+        if last_sync_ts == 0:
+            return "Ready to sync now"
+
+        remaining = int(interval - (now_ts - last_sync_ts))
+
+        if remaining <= 0:
+            return "Ready to sync now"
+
+        minutes = remaining // 60
+        seconds = remaining % 60
+        return f"{minutes} min {seconds} sec remaining"
+
+    except Exception:
+        return "Waiting time not available"
+
+
+def get_sync_status_badge_text():
+    state = load_sync_state()
+    dirty_sheets = state.get("dirty_sheets", [])
+    status = state.get("last_sync_status", "Not yet")
+
+    if dirty_sheets:
+        return "Waiting for Google Sheet update"
+
+    if status == "Success":
+        return "Updated to Google Sheet"
+
+    return status
+
+
+def auto_sync_google_sheet_30min():
+    """
+    Excel save is instant and fast.
+    Google Sheet sync runs only once every 30 minutes when app opens/reruns.
+    """
+    try:
+        state = load_sync_state()
+        dirty_sheets = state.get("dirty_sheets", [])
+
+        if not dirty_sheets:
+            return
+
+        now_ts = datetime.now().timestamp()
+        last_sync_ts = float(state.get("last_sync_ts", 0) or 0)
+        thirty_minutes = 30 * 60
+
+        if now_ts - last_sync_ts < thirty_minutes:
+            return
+
+        sync_dirty_sheets_to_google_sheet()
+
+    except Exception:
+        pass
+
+
+
+def sync_excel_to_google_sheet():
+    """
+    Copies all local Excel sheets to Google Sheet.
+    This does not replace Excel storage. It is only a manual cloud backup.
+    """
+    if not EXCEL_FILE.exists():
+        return False, "Excel file not found. Save some data first."
+
+    sheet_id = st.secrets.get("SHEET_ID", "")
+    if not sheet_id:
+        return False, "Streamlit secrets missing: SHEET_ID"
+
+    client, err = google_sheet_client()
+    if client is None:
+        return False, err
+
+    try:
+        spreadsheet = client.open_by_key(sheet_id)
+
+        synced = []
+        for sheet_name in SHEETS.keys():
+            df = read_sheet(sheet_name)
+            ws = get_or_create_worksheet(
+                spreadsheet,
+                sheet_name,
+                rows=max(len(df) + 20, 100),
+                cols=max(len(df.columns) + 5, 20)
+            )
+
+            ws.clear()
+            values = dataframe_to_sheet_values(df)
+            if values:
+                ws.update(values)
+
+            synced.append(f"{sheet_name} ({len(df)} rows)")
+
+        return True, "Synced to Google Sheet: " + ", ".join(synced)
+
+    except Exception as e:
+        return False, str(e)
+
+
+
+
+# ============================================================
+# AUTO BACKUP CHECK - 10 PM
+# Note: Streamlit cannot run a true background job by itself.
+# This check runs whenever app opens/reruns after 10 PM.
+# It syncs only once per date.
+# ============================================================
+def get_setting_value(key, default=""):
+    try:
+        df = read_sheet("settings")
+        match = df[df["Key"].astype(str) == str(key)]
+        if match.empty:
+            return default
+        return str(match.iloc[0]["Value"])
+    except Exception:
+        return default
+
+
+def set_setting_value(key, value):
+    df = read_sheet("settings")
+    if (df["Key"].astype(str) == str(key)).any():
+        idx = df[df["Key"].astype(str) == str(key)].index[0]
+        df.loc[idx, "Value"] = str(value)
+        write_sheet("settings", df)
+    else:
+        append_row("settings", {
+            "Key": key,
+            "Value": str(value)
+        })
+
+
+def auto_backup_check_10pm():
+    """
+    Auto sync Excel data to Google Sheet once per day after 10:00 PM.
+    Works when the Streamlit app is opened or rerun after 10 PM.
+    """
+    try:
+        now = datetime.now()
+        today_key = now.strftime("%d-%m-%Y")
+        current_minutes = now.hour * 60 + now.minute
+        backup_minutes = 22 * 60  # 10:00 PM
+
+        if current_minutes < backup_minutes:
+            return
+
+        last_backup_date = get_setting_value("Last Auto Backup Date", "")
+
+        if last_backup_date == today_key:
+            return
+
+        ok, msg = sync_excel_to_google_sheet()
+
+        if ok:
+            set_setting_value("Last Auto Backup Date", today_key)
+            set_setting_value("Last Auto Backup Time", now.strftime("%I:%M:%S %p"))
+            set_setting_value("Last Auto Backup Status", "Success")
+            set_setting_value("Last Auto Backup Message", msg[:500])
+        else:
+            set_setting_value("Last Auto Backup Status", "Failed")
+            set_setting_value("Last Auto Backup Message", msg[:500])
+
+    except Exception as e:
+        try:
+            set_setting_value("Last Auto Backup Status", "Failed")
+            set_setting_value("Last Auto Backup Message", str(e)[:500])
+        except Exception:
+            pass
+
 
 
 # ============================================================
@@ -2047,6 +2407,67 @@ def page_admin_panel():
     settings = read_sheet("settings")
     st.dataframe(settings, use_container_width=True)
 
+
+    st.subheader("Auto Backup Status - 10 PM")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Last Backup Date", get_setting_value("Last Auto Backup Date", "Not yet"))
+    c2.metric("Last Backup Time", get_setting_value("Last Auto Backup Time", "Not yet"))
+    c3.metric("Status", get_setting_value("Last Auto Backup Status", "Not yet"))
+    st.caption("Auto backup runs once per day after 10:00 PM when the app is opened or rerun.")
+
+    st.subheader("30 Minutes Auto Google Sheet Sync Status")
+    if is_google_auto_sync_enabled():
+        st.success("30 minutes auto sync is ON. Excel saves instantly first; changed sheets sync to Google Sheet once every 30 minutes.")
+    else:
+        st.warning("30 minutes auto sync is OFF. Add SHEET_ID and gcp_service_account in Streamlit Secrets.")
+
+    sync_state = load_sync_state()
+    dirty_sheets = sync_state.get("dirty_sheets", [])
+    waiting_text = get_next_sync_wait_text()
+    badge_text = get_sync_status_badge_text()
+
+    if dirty_sheets:
+        st.warning(f"Google Sheet update waiting: {len(dirty_sheets)} sheet(s) pending.")
+    elif sync_state.get("last_sync_status") == "Success":
+        st.success("Google Sheet updated successfully. No pending sheets.")
+    else:
+        st.info("Google Sheet sync not yet completed.")
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Google Sheet Status", badge_text)
+    c2.metric("Waiting Sheets", len(dirty_sheets))
+    c3.metric("Next Auto Sync", waiting_text)
+    c4.metric("Last Sync Time", sync_state.get("last_sync_time", "Not yet"))
+
+    if dirty_sheets:
+        st.caption("Waiting sheets: " + ", ".join(dirty_sheets))
+
+    if sync_state.get("last_sync_message"):
+        st.caption("Last sync message: " + str(sync_state.get("last_sync_message", "")))
+
+    if st.button("Sync Changed Sheets Now", use_container_width=True):
+        with st.spinner("Syncing changed sheets to Google Sheet..."):
+            ok, msg = sync_dirty_sheets_to_google_sheet()
+
+        if ok:
+            st.success("Google Sheet updated now. " + msg)
+            st.rerun()
+        else:
+            st.error(msg)
+
+    st.subheader("Google Sheet Cloud Backup")
+    st.caption("Excel storage is primary. This button copies all Excel sheets to Google Sheet only when Admin clicks it.")
+
+    if st.button("Sync All Excel Data to Google Sheet", use_container_width=True):
+        with st.spinner("Syncing Excel data to Google Sheet..."):
+            ok, msg = sync_excel_to_google_sheet()
+
+        if ok:
+            st.success(msg)
+        else:
+            st.error(msg)
+
+
     st.subheader("Password Protected Excel Sheet Direct Link")
     pwd = st.text_input("Enter password to view Excel link", type="password")
     if pwd == SECRET_PASSWORD:
@@ -2120,6 +2541,8 @@ def main():
     if not st.session_state.get("logged_in"):
         page_login()
         return
+
+    auto_backup_check_10pm()
 
     page = menu_page()
 
