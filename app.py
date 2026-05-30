@@ -655,6 +655,34 @@ hr {
     .invoice-preview-body { grid-template-columns: repeat(1, minmax(0, 1fr)); }
 }
 
+
+.cloud-excel-head {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    background: linear-gradient(135deg, #f8fafc, #ecfdf5);
+    border: 1px solid #bbf7d0;
+    border-radius: 18px;
+    padding: 14px;
+    margin: 10px 0 16px 0;
+    color: #0f172a;
+    box-shadow: 0 10px 25px rgba(15,23,42,.06);
+}
+.cloud-excel-head div {
+    background: white;
+    border-radius: 14px;
+    padding: 10px;
+    border: 1px solid #e2e8f0;
+}
+[data-testid="stTabs"] button {
+    font-weight: 900;
+}
+@media (max-width: 900px) {
+    .cloud-excel-head {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -2058,7 +2086,7 @@ def menu_page():
     if is_admin():
         pages = [
             "Dashboard", "Reports", "Search",
-            "Customer Service History", "Manual Invoice Generator", "Admin Panel"
+            "Customer Service History", "Admin Panel"
         ]
     elif is_manager():
         pages = [
@@ -2826,17 +2854,24 @@ def admin_excel_data_manager():
     st.subheader("Cloud Excel Data View / Edit / Delete")
     st.caption("Streamlit Cloud-la save aagura Excel sheet data inga view pannalam. Edit/Delete panna password required.")
 
+    if st.button("Refresh Cloud Excel Data", use_container_width=True, key="refresh_cloud_excel_data"):
+        st.cache_data.clear()
+        st.rerun()
+
     sheet_name = st.selectbox(
         "Select Excel Sheet",
         safe_sheet_options_for_admin(),
         key="admin_excel_sheet_select"
     )
 
-    df = read_sheet(sheet_name)
+    # Always re-read sheet fresh after each action
+    df = read_sheet(sheet_name).reset_index(drop=True)
 
     st.markdown(f"""
-    <div class="admin-tab-note">
-        Selected Sheet: <b>{sheet_name}</b> | Rows: <b>{len(df)}</b> | Storage: <b>Cloud Excel File</b>
+    <div class="cloud-excel-head">
+        <div><b>Selected Sheet:</b> {sheet_name}</div>
+        <div><b>Rows:</b> {len(df)}</div>
+        <div><b>Storage:</b> Cloud Excel File</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -2864,17 +2899,28 @@ def admin_excel_data_manager():
         key=f"action_{sheet_name}"
     )
 
-    df = read_sheet(sheet_name)
+    # Re-read after password unlock too
+    df = read_sheet(sheet_name).reset_index(drop=True)
 
     if action == "Add Row":
         st.markdown("#### Add New Row")
         new_row = {}
         for col in SHEETS[sheet_name]:
-            new_row[col] = st.text_input(col, key=f"add_{sheet_name}_{col}")
+            default_value = ""
+            if col in ["Entry ID"]:
+                default_value = "E-" + uuid.uuid4().hex[:8].upper()
+            elif col in ["Request ID"]:
+                default_value = "R-" + uuid.uuid4().hex[:8].upper()
+            elif col in ["Date"]:
+                default_value = today_str()
+            elif col in ["Time"]:
+                default_value = time_str()
+            new_row[col] = st.text_input(col, value=default_value, key=f"add_{sheet_name}_{col}")
 
         if st.button("Add Row to Excel", use_container_width=True, key=f"add_btn_{sheet_name}"):
             append_row(sheet_name, new_row)
-            st.success("New row added to Excel.")
+            st.cache_data.clear()
+            st.success("New row added to Cloud Excel.")
             st.rerun()
 
     elif action == "Edit Row":
@@ -2882,10 +2928,9 @@ def admin_excel_data_manager():
             st.warning("No rows available to edit.")
             return
 
-        row_numbers = list(range(len(df)))
         selected_idx = st.selectbox(
             "Select Row Number to Edit",
-            row_numbers,
+            list(range(len(df))),
             format_func=lambda i: f"Row {i + 1}",
             key=f"edit_row_{sheet_name}"
         )
@@ -2905,10 +2950,15 @@ def admin_excel_data_manager():
             )
 
         if st.button("Save Edited Row", use_container_width=True, key=f"save_edit_{sheet_name}"):
+            fresh_df = read_sheet(sheet_name).reset_index(drop=True)
+            if selected_idx >= len(fresh_df):
+                st.error("Row not found after refresh. Please try again.")
+                return
             for col in SHEETS[sheet_name]:
-                df.loc[selected_idx, col] = edited_row[col]
-            write_sheet(sheet_name, df)
-            st.success("Row updated successfully in Excel.")
+                fresh_df.loc[selected_idx, col] = edited_row[col]
+            write_sheet(sheet_name, fresh_df)
+            st.cache_data.clear()
+            st.success("Row updated successfully in Cloud Excel.")
             st.rerun()
 
     elif action == "Delete Row":
@@ -2916,15 +2966,14 @@ def admin_excel_data_manager():
             st.warning("No rows available to delete.")
             return
 
-        row_numbers = list(range(len(df)))
         selected_idx = st.selectbox(
             "Select Row Number to Delete",
-            row_numbers,
+            list(range(len(df))),
             format_func=lambda i: f"Row {i + 1}",
             key=f"delete_row_{sheet_name}"
         )
 
-        st.warning("Selected row will be permanently deleted from Excel.")
+        st.warning("Selected row will be permanently deleted from Cloud Excel.")
         st.dataframe(df.iloc[[selected_idx]], use_container_width=True)
 
         confirm_text = st.text_input(
@@ -2937,9 +2986,15 @@ def admin_excel_data_manager():
                 st.error("Type DELETE exactly to confirm.")
                 return
 
-            df = df.drop(index=selected_idx).reset_index(drop=True)
-            write_sheet(sheet_name, df)
-            st.success("Selected row deleted from Excel.")
+            fresh_df = read_sheet(sheet_name).reset_index(drop=True)
+            if selected_idx >= len(fresh_df):
+                st.error("Row not found after refresh. Please try again.")
+                return
+
+            fresh_df = fresh_df.drop(index=selected_idx).reset_index(drop=True)
+            write_sheet(sheet_name, fresh_df)
+            st.cache_data.clear()
+            st.success("Selected row deleted from Cloud Excel.")
             st.rerun()
 
     st.divider()
@@ -2957,34 +3012,34 @@ def admin_excel_data_manager():
     else:
         st.warning("Excel file not created yet.")
 
-
 # ============================================================
 # ADMIN PANEL
 # ============================================================
 def page_admin_panel():
-    page_hero("Admin Panel", "Ultra control center for revenue, employees, approvals, Google sync and settings.", "Admin")
+    page_hero("Admin Panel", "Cloud Excel control center: revenue, employees, delete requests, data manager and settings.", "Admin")
 
     invoices = read_sheet("invoices")
-    invoices["Total Amount"] = pd.to_numeric(invoices["Total Amount"], errors="coerce").fillna(0)
+    if "Total Amount" in invoices.columns:
+        invoices["Total Amount"] = pd.to_numeric(invoices["Total Amount"], errors="coerce").fillna(0)
+    else:
+        invoices["Total Amount"] = 0
 
     tabs = st.tabs([
         "📊 Revenue",
         "👥 Employees",
-        "⚠️ Duplicate Approvals",
         "🗑️ Delete Requests",
-        "☁️ Google Sync",
         "📁 Cloud Excel Data",
         "⚙️ Settings"
     ])
 
     with tabs[0]:
-        st.markdown("<div class='admin-tab-note'>Admin revenue overview and technician-wise totals.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='admin-tab-note'>Admin revenue overview. Duplicate approval and manual invoice generator are hidden for Admin.</div>", unsafe_allow_html=True)
 
         month_key = datetime.now().strftime("%m-%Y")
         temp = invoices.copy()
         temp["Month"] = pd.to_datetime(temp["Date"], format="%d-%m-%Y", errors="coerce").dt.strftime("%m-%Y")
-        month_df = temp[temp["Month"] == month_key]
-        active_df = invoices[invoices["Status"].astype(str) == "Active"]
+        month_df = temp[temp["Month"] == month_key] if "Month" in temp.columns else invoices
+        active_df = invoices[invoices["Status"].astype(str) == "Active"] if "Status" in invoices.columns else invoices
 
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -2995,7 +3050,7 @@ def page_admin_panel():
             ultra_card("Total Revenue", f"₹{invoices['Total Amount'].sum():,.0f}", "All entries", "📈")
 
         st.markdown("<div class='section-title'>Technician-wise Revenue</div>", unsafe_allow_html=True)
-        if not invoices.empty:
+        if not invoices.empty and "Technician Name" in invoices.columns:
             tech = invoices.groupby("Technician Name", dropna=False)["Total Amount"].sum().reset_index()
             st.dataframe(tech, use_container_width=True)
         else:
@@ -3035,51 +3090,14 @@ def page_admin_panel():
                             "Status": status
                         })
                         st.success("Employee added.")
+                    st.cache_data.clear()
                     st.rerun()
 
     with tabs[2]:
-        st.markdown("<div class='admin-tab-note'>Duplicate invoices are stored only after Admin approval.</div>", unsafe_allow_html=True)
-
-        pir = read_sheet("pending_invoice_requests")
-        pending_pir = pir[pir["Request Status"].astype(str) == "Pending"]
-
-        if pending_pir.empty:
-            st.success("No pending duplicate invoice approval requests.")
-        else:
-            for pir_idx, pir_row in pending_pir.iterrows():
-                st.markdown(f"""
-                <div class="approval-card">
-                    <h3>Duplicate Approval Request {status_badge("Pending", "yellow")}</h3>
-                    <p><b>Request ID:</b> {pir_row['Request ID']}</p>
-                    <p><b>Invoice No:</b> {pir_row['Invoice Number']}</p>
-                    <p><b>Job Card No:</b> {pir_row.get('Job Card Number', '')}</p>
-                    <p><b>Technician:</b> {pir_row['Technician Name']}</p>
-                    <p><b>Vehicle:</b> {pir_row['Registration Number']} | {pir_row['Bike Model']}</p>
-                    <p><b>Total:</b> ₹{pir_row['Total Amount']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-                a1, a2 = st.columns(2)
-                if a1.button("Approve & Store Invoice", key=f"approve_pir_{pir_idx}", use_container_width=True):
-                    save_invoice_entry_from_data(pir_row.to_dict(), entry_type="Admin Approved Duplicate")
-                    pir.loc[pir_idx, "Request Status"] = "Approved"
-                    pir.loc[pir_idx, "Admin Action Date"] = now_stamp()
-                    write_sheet("pending_invoice_requests", pir)
-                    st.success("Approved. Invoice stored in Excel.")
-                    st.rerun()
-
-                if a2.button("Reject Duplicate Request", key=f"reject_pir_{pir_idx}", use_container_width=True):
-                    pir.loc[pir_idx, "Request Status"] = "Rejected"
-                    pir.loc[pir_idx, "Admin Action Date"] = now_stamp()
-                    write_sheet("pending_invoice_requests", pir)
-                    st.warning("Request rejected. Invoice not stored.")
-                    st.rerun()
-
-    with tabs[3]:
         st.markdown("<div class='admin-tab-note'>Technician delete requests. Invoice deletes only after Admin approval.</div>", unsafe_allow_html=True)
 
         req = read_sheet("delete_requests")
-        pending = req[req["Request Status"].astype(str) == "Pending"]
+        pending = req[req["Request Status"].astype(str) == "Pending"] if not req.empty and "Request Status" in req.columns else pd.DataFrame()
 
         if pending.empty:
             st.success("No pending delete requests.")
@@ -3097,14 +3115,15 @@ def page_admin_panel():
                 c1, c2 = st.columns(2)
                 if c1.button("Approve Delete", key=f"approve_{idx}", use_container_width=True):
                     inv = read_sheet("invoices")
-                    inv_idx = inv[inv["Entry ID"].astype(str) == str(row["Entry ID"])].index
+                    inv_idx = inv[inv["Entry ID"].astype(str) == str(row["Entry ID"])].index if "Entry ID" in inv.columns else []
                     if len(inv_idx) > 0:
-                        inv = inv.drop(inv_idx)
+                        inv = inv.drop(inv_idx).reset_index(drop=True)
                         write_sheet("invoices", inv)
 
                     req.loc[idx, "Request Status"] = "Approved"
                     req.loc[idx, "Admin Action Date"] = now_stamp()
                     write_sheet("delete_requests", req)
+                    st.cache_data.clear()
                     st.success("Request approved and invoice deleted.")
                     st.rerun()
 
@@ -3112,62 +3131,16 @@ def page_admin_panel():
                     req.loc[idx, "Request Status"] = "Rejected"
                     req.loc[idx, "Admin Action Date"] = now_stamp()
                     write_sheet("delete_requests", req)
+                    st.cache_data.clear()
                     st.warning("Request rejected.")
                     st.rerun()
 
-    with tabs[4]:
-        st.markdown("<div class='admin-tab-note'>Excel saves first for speed. Google Sheet sync runs every 5 minutes when app is active.</div>", unsafe_allow_html=True)
-
-        if is_google_auto_sync_enabled():
-            ultra_status("Google Sheet Sync ON", "Excel entries are saved first. Changed sheets will sync automatically every 5 minutes.")
-        else:
-            st.warning("Google Sheet sync OFF. Add SHEET_ID and gcp_service_account in Streamlit Secrets.")
-
-        sync_state = load_sync_state()
-        dirty_sheets = sync_state.get("dirty_sheets", [])
-        waiting_text = get_next_google_sync_wait_text() if "get_next_google_sync_wait_text" in globals() else "Not available"
-        badge_text = get_sync_status_badge_text() if "get_sync_status_badge_text" in globals() else sync_state.get("last_sync_status", "Not yet")
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            ultra_card("Google Status", badge_text, "Updated / Waiting", "☁️")
-        with c2:
-            ultra_card("Waiting Sheets", len(dirty_sheets), ", ".join(dirty_sheets) if dirty_sheets else "None", "⏳")
-        with c3:
-            ultra_card("Next Sync", waiting_text, "Auto sync timer", "⏱️")
-        with c4:
-            ultra_card("Last Sync", sync_state.get("last_sync_time", "Not yet"), "Google Sheet", "✅")
-
-        if sync_state.get("last_sync_message"):
-            st.caption("Last sync message: " + str(sync_state.get("last_sync_message", "")))
-
-        if st.button("Sync Changed Sheets Now", use_container_width=True):
-            with st.spinner("Syncing changed sheets to Google Sheet..."):
-                ok, msg = sync_dirty_sheets_to_google_sheet()
-
-            if ok:
-                st.success("Google Sheet updated now. " + msg)
-                st.rerun()
-            else:
-                st.error(msg)
-
-        st.divider()
-        st.subheader("Manual Full Sync")
-        st.caption("This copies all Excel sheets to Google Sheet.")
-        if st.button("Sync All Excel Data to Google Sheet", use_container_width=True):
-            with st.spinner("Syncing all Excel data to Google Sheet..."):
-                ok, msg = sync_excel_to_google_sheet()
-            if ok:
-                st.success(msg)
-            else:
-                st.error(msg)
-
-    with tabs[5]:
-        st.markdown("<div class='admin-tab-note'>View, edit and delete cloud Excel data safely.</div>", unsafe_allow_html=True)
+    with tabs[3]:
+        st.markdown("<div class='admin-tab-note'>View, edit, add and delete rows from cloud Excel data. Password protected.</div>", unsafe_allow_html=True)
         admin_excel_data_manager()
 
-    with tabs[6]:
-        st.markdown("<div class='admin-tab-note'>Settings and password-protected Excel download.</div>", unsafe_allow_html=True)
+    with tabs[4]:
+        st.markdown("<div class='admin-tab-note'>Settings and password-protected cloud Excel download.</div>", unsafe_allow_html=True)
 
         settings = read_sheet("settings")
         st.dataframe(settings, use_container_width=True)
@@ -3176,7 +3149,7 @@ def page_admin_panel():
         pwd = st.text_input("Enter password to view Excel link", type="password")
         if pwd == SECRET_PASSWORD:
             st.success("Password correct.")
-            st.write(f"Excel file path: `{EXCEL_FILE}`")
+            st.write(f"Cloud Excel file path: `{EXCEL_FILE}`")
             if EXCEL_FILE.exists():
                 with open(EXCEL_FILE, "rb") as f:
                     st.download_button(
@@ -3188,96 +3161,6 @@ def page_admin_panel():
                     )
         elif pwd:
             st.error("Wrong password.")
-
-
-# ============================================================
-# MANAGER DUPLICATE UPLOAD FINDER
-# ============================================================
-def find_duplicate_upload_rows():
-    df = read_sheet("invoices")
-    if df.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    work = df.copy()
-    if "Job Card Number" not in work.columns:
-        work["Job Card Number"] = ""
-
-    work["_clean_jobcard"] = work["Job Card Number"].astype(str).apply(normalize_invoice_jobcard_no)
-    work = work[work["_clean_jobcard"].astype(str).str.len() > 0].copy()
-
-    if work.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    dup_rows = work[work.duplicated("_clean_jobcard", keep=False)].copy()
-    if dup_rows.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    summary = (
-        dup_rows.groupby("_clean_jobcard")
-        .size()
-        .reset_index(name="Duplicate Count")
-        .rename(columns={"_clean_jobcard": "Job Card Number"})
-    )
-    dup_rows["Excel Row Number"] = dup_rows.index + 2
-    return summary, dup_rows
-
-
-def page_duplicate_upload_finder():
-    page_hero("Duplicate Upload Finder", "Manager can find duplicate Job Card uploads and delete selected rows directly from Excel.", "Manager")
-
-    if not is_manager():
-        st.error("Manager access only.")
-        return
-
-    st.warning("This page directly deletes selected duplicate invoice rows from Excel. Use carefully.")
-
-    summary, dup_rows = find_duplicate_upload_rows()
-
-    if summary.empty:
-        st.success("No duplicate Job Card uploads found.")
-        return
-
-    st.subheader("Duplicate Job Card Summary")
-    st.dataframe(summary, use_container_width=True)
-
-    st.subheader("Duplicate Invoice Rows")
-    show_cols = [
-        "Excel Row Number", "Entry ID", "Date", "Technician Name", "User ID",
-        "Invoice Number", "Job Card Number", "Registration Number", "Bike Model",
-        "Labour Amount", "Spare Parts Count", "Oil Change Status", "Total Amount",
-        "Entry Type", "Status"
-    ]
-    show_cols = [c for c in show_cols if c in dup_rows.columns]
-    st.dataframe(dup_rows[show_cols], use_container_width=True)
-
-    st.divider()
-    st.subheader("Delete Duplicate Row")
-
-    selected_index = st.selectbox(
-        "Select duplicate row to delete",
-        dup_rows.index.tolist(),
-        format_func=lambda i: f"Excel Row {i+2} | Job Card: {dup_rows.loc[i, 'Job Card Number']} | Reg: {dup_rows.loc[i, 'Registration Number']}"
-    )
-
-    st.dataframe(dup_rows.loc[[selected_index], show_cols], use_container_width=True)
-
-    confirm = st.text_input("Type DELETE to confirm direct Excel delete", key="manager_duplicate_delete_confirm")
-
-    if st.button("Delete Selected Duplicate Row from Excel", use_container_width=True):
-        if confirm != "DELETE":
-            st.error("Type DELETE exactly to confirm.")
-            return
-
-        df = read_sheet("invoices")
-        if selected_index not in df.index:
-            st.error("Selected row not found. Refresh and try again.")
-            return
-
-        df = df.drop(index=selected_index).reset_index(drop=True)
-        write_sheet("invoices", df)
-        st.success("Selected duplicate row deleted directly from Excel.")
-        st.rerun()
-
 
 # ============================================================
 # MANAGER EDIT
