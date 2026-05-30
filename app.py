@@ -2662,6 +2662,168 @@ def page_delete_invoice_request():
         st.success("Delete request sent to Admin.")
 
 
+
+# ============================================================
+# ADMIN EXCEL DATA MANAGER
+# ============================================================
+def safe_sheet_options_for_admin():
+    return [
+        "employees",
+        "attendance",
+        "invoices",
+        "pending_invoice_requests",
+        "delete_requests",
+        "manual_invoices",
+        "settings"
+    ]
+
+
+def admin_editable_columns(sheet_name):
+    protected = {
+        "invoices": ["Entry ID"],
+        "pending_invoice_requests": ["Request ID"],
+        "delete_requests": ["Request ID"],
+        "manual_invoices": ["Manual Bill ID"],
+    }
+    return [c for c in SHEETS.get(sheet_name, []) if c not in protected.get(sheet_name, [])]
+
+
+def admin_excel_data_manager():
+    st.subheader("Cloud Excel Data View / Edit / Delete")
+    st.caption("Streamlit Cloud-la save aagura Excel sheet data inga view pannalam. Edit/Delete panna password required.")
+
+    sheet_name = st.selectbox(
+        "Select Excel Sheet",
+        safe_sheet_options_for_admin(),
+        key="admin_excel_sheet_select"
+    )
+
+    df = read_sheet(sheet_name)
+
+    st.markdown(f"""
+    <div class="admin-tab-note">
+        Selected Sheet: <b>{sheet_name}</b> | Rows: <b>{len(df)}</b> | Storage: <b>Cloud Excel File</b>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if df.empty:
+        st.info("This sheet has no data.")
+    else:
+        st.dataframe(df, use_container_width=True)
+
+    st.divider()
+    st.subheader("Password Protected Edit / Delete")
+    pwd = st.text_input("Enter password to unlock edit/delete", type="password", key=f"edit_pwd_{sheet_name}")
+
+    if pwd != SECRET_PASSWORD:
+        if pwd:
+            st.error("Wrong password.")
+        st.info("Password enter pannina edit/delete options show aagum.")
+        return
+
+    st.success("Edit/Delete access unlocked.")
+
+    action = st.radio(
+        "Select Action",
+        ["Edit Row", "Delete Row", "Add Row"],
+        horizontal=True,
+        key=f"action_{sheet_name}"
+    )
+
+    df = read_sheet(sheet_name)
+
+    if action == "Add Row":
+        st.markdown("#### Add New Row")
+        new_row = {}
+        for col in SHEETS[sheet_name]:
+            new_row[col] = st.text_input(col, key=f"add_{sheet_name}_{col}")
+
+        if st.button("Add Row to Excel", use_container_width=True, key=f"add_btn_{sheet_name}"):
+            append_row(sheet_name, new_row)
+            st.success("New row added to Excel.")
+            st.rerun()
+
+    elif action == "Edit Row":
+        if df.empty:
+            st.warning("No rows available to edit.")
+            return
+
+        row_numbers = list(range(len(df)))
+        selected_idx = st.selectbox(
+            "Select Row Number to Edit",
+            row_numbers,
+            format_func=lambda i: f"Row {i + 1}",
+            key=f"edit_row_{sheet_name}"
+        )
+
+        st.markdown("#### Edit Selected Row")
+        edited_row = {}
+        editable_cols = admin_editable_columns(sheet_name)
+
+        for col in SHEETS[sheet_name]:
+            current_val = str(df.iloc[selected_idx].get(col, ""))
+            disabled = col not in editable_cols
+            edited_row[col] = st.text_input(
+                col,
+                value=current_val,
+                disabled=disabled,
+                key=f"edit_{sheet_name}_{selected_idx}_{col}"
+            )
+
+        if st.button("Save Edited Row", use_container_width=True, key=f"save_edit_{sheet_name}"):
+            for col in SHEETS[sheet_name]:
+                df.loc[selected_idx, col] = edited_row[col]
+            write_sheet(sheet_name, df)
+            st.success("Row updated successfully in Excel.")
+            st.rerun()
+
+    elif action == "Delete Row":
+        if df.empty:
+            st.warning("No rows available to delete.")
+            return
+
+        row_numbers = list(range(len(df)))
+        selected_idx = st.selectbox(
+            "Select Row Number to Delete",
+            row_numbers,
+            format_func=lambda i: f"Row {i + 1}",
+            key=f"delete_row_{sheet_name}"
+        )
+
+        st.warning("Selected row will be permanently deleted from Excel.")
+        st.dataframe(df.iloc[[selected_idx]], use_container_width=True)
+
+        confirm_text = st.text_input(
+            "Type DELETE to confirm",
+            key=f"delete_confirm_{sheet_name}"
+        )
+
+        if st.button("Delete Selected Row", use_container_width=True, key=f"delete_btn_{sheet_name}"):
+            if confirm_text != "DELETE":
+                st.error("Type DELETE exactly to confirm.")
+                return
+
+            df = df.drop(index=selected_idx).reset_index(drop=True)
+            write_sheet(sheet_name, df)
+            st.success("Selected row deleted from Excel.")
+            st.rerun()
+
+    st.divider()
+    st.subheader("Download Current Cloud Excel File")
+    if EXCEL_FILE.exists():
+        with open(EXCEL_FILE, "rb") as f:
+            st.download_button(
+                "Download Cloud Excel Sheet",
+                f,
+                file_name="selva_motors_excel_storage.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key=f"download_excel_{sheet_name}"
+            )
+    else:
+        st.warning("Excel file not created yet.")
+
+
 # ============================================================
 # ADMIN PANEL
 # ============================================================
@@ -2677,6 +2839,7 @@ def page_admin_panel():
         "⚠️ Duplicate Approvals",
         "🗑️ Delete Requests",
         "☁️ Google Sync",
+        "📁 Cloud Excel Data",
         "⚙️ Settings"
     ])
 
@@ -2866,12 +3029,16 @@ def page_admin_panel():
                 st.error(msg)
 
     with tabs[5]:
+        st.markdown("<div class='admin-tab-note'>View, edit and delete cloud Excel data safely.</div>", unsafe_allow_html=True)
+        admin_excel_data_manager()
+
+    with tabs[6]:
         st.markdown("<div class='admin-tab-note'>Settings and password-protected Excel download.</div>", unsafe_allow_html=True)
 
         settings = read_sheet("settings")
         st.dataframe(settings, use_container_width=True)
 
-        st.subheader("Password Protected Excel Sheet Direct Link")
+        st.subheader("Password Protected Cloud Excel Sheet Access")
         pwd = st.text_input("Enter password to view Excel link", type="password")
         if pwd == SECRET_PASSWORD:
             st.success("Password correct.")
@@ -2879,7 +3046,7 @@ def page_admin_panel():
             if EXCEL_FILE.exists():
                 with open(EXCEL_FILE, "rb") as f:
                     st.download_button(
-                        "Download / Visit Excel Sheet",
+                        "Download Cloud Excel Sheet",
                         f,
                         file_name="selva_motors_excel_storage.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
