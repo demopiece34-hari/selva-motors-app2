@@ -1209,6 +1209,9 @@ def extract_invoice_text(file_path):
 
 
 def get_section(text, start_keywords, end_keywords):
+    if not text:
+        return ""
+
     lower_text = text.lower()
     start = -1
 
@@ -1230,36 +1233,104 @@ def get_section(text, start_keywords, end_keywords):
     return text[start:end]
 
 
+def clean_part_description(line):
+    line = str(line or "").strip()
+    line = re.sub(r"^\d+\s+", "", line)
+    line = re.sub(r"\b[A-Z0-9]{6,}[-_]", "", line)
+    line = re.sub(r"\b\d{8}\b", "", line)
+    line = re.sub(r"\s+", " ", line).strip()
+    return line
+
+
+def is_total_or_header_line(line):
+    lower = str(line or "").lower().strip()
+    if not lower:
+        return True
+
+    blocked_words = [
+        "genuine parts details", "other parts details", "labour details",
+        "other labour details", "description of goods", "hsn code",
+        "billing", "taxable", "cgst", "sgst", "discount", "rate amount",
+        "total value", "uom", "qty", "s.no"
+    ]
+
+    if lower == "total":
+        return True
+
+    if any(word in lower for word in blocked_words):
+        return True
+
+    if re.fullmatch(r"total\s+[\d.,\s]+", lower):
+        return True
+
+    return False
+
+
 def count_genuine_spare_items(text):
+    """
+    Count only actual item rows from Genuine Parts Details / Spares Details.
+    Do not count unrelated numbers, total, GST, mobile, VIN, job card.
+    """
     section = get_section(
         text,
         ["Genuine Parts Details", "Genuine Part Details", "Spares Details", "Spare Details", "Parts Details"],
-        ["Labour Details", "Other Labour Details", "Summary", "Tax", "Grand Total", "Total Invoice"]
+        ["Other Parts Details", "Labour Details", "Other Labour Details", "CGST", "SGST", "Net Amount", "Round Off", "Invoice Amount", "Total Invoice"]
     )
 
     if not section:
         return 0
 
-    lines = [line.strip() for line in section.splitlines() if line.strip()]
     count = 0
-
-    for line in lines:
-        lower = line.lower()
-
-        if any(word in lower for word in ["genuine parts", "spares details", "parts details", "part no", "description", "amount", "qty", "rate"]):
+    for line in section.splitlines():
+        line = line.strip()
+        if is_total_or_header_line(line):
             continue
 
+        lower = line.lower()
+        has_billing_type = bool(re.search(r"\b(paid|fsc|warranty|goodwill)\b", lower))
+        has_qty_uom = bool(re.search(r"\b\d+\s*(pc|pcs|ltr|lt|nos|no)\b", lower))
+        has_part_code = bool(re.search(r"\b[A-Z0-9]{6,}[-_]?[A-Z0-9]*\b", line))
         has_spare_word = bool(re.search(
-            r"oil|filter|plug|shoe|pad|cable|chain|lamp|bulb|bearing|gasket|lever|mirror|clutch|brake|tube|tyre|washer|nut|bolt|cover|seal",
+            r"spark|plug|filter|oil|shoe|pad|cable|chain|lamp|bulb|bearing|gasket|lever|mirror|clutch|brake|tube|tyre|washer|nut|bolt|cover|seal",
             lower
         ))
-        has_part_code = bool(re.search(r"\b[A-Z0-9]{4,}[-\/]?[A-Z0-9]*\b", line))
-        has_amount_like = bool(re.search(r"\d+(?:\.\d+)?\s*$", line))
+        is_tax_line = bool(re.search(r"\bcgst\b|\bsgst\b|\btax\b|round off|net amount|invoice amount", lower))
 
-        if has_spare_word or (has_part_code and has_amount_like):
+        if not is_tax_line and ((has_billing_type and has_qty_uom) or (has_part_code and has_spare_word) or (has_spare_word and has_qty_uom)):
             count += 1
 
     return count
+
+
+def extract_genuine_spare_details(text):
+    section = get_section(
+        text,
+        ["Genuine Parts Details", "Genuine Part Details", "Spares Details", "Spare Details", "Parts Details"],
+        ["Other Parts Details", "Labour Details", "Other Labour Details", "CGST", "SGST", "Net Amount", "Round Off", "Invoice Amount", "Total Invoice"]
+    )
+
+    if not section:
+        return []
+
+    items = []
+    for line in section.splitlines():
+        line = line.strip()
+        if is_total_or_header_line(line):
+            continue
+
+        lower = line.lower()
+        has_billing_type = bool(re.search(r"\b(paid|fsc|warranty|goodwill)\b", lower))
+        has_qty_uom = bool(re.search(r"\b\d+\s*(pc|pcs|ltr|lt|nos|no)\b", lower))
+        has_part_code = bool(re.search(r"\b[A-Z0-9]{6,}[-_]?[A-Z0-9]*\b", line))
+        has_spare_word = bool(re.search(
+            r"spark|plug|filter|oil|shoe|pad|cable|chain|lamp|bulb|bearing|gasket|lever|mirror|clutch|brake|tube|tyre|washer|nut|bolt|cover|seal",
+            lower
+        ))
+
+        if (has_billing_type and has_qty_uom) or (has_part_code and has_spare_word) or (has_spare_word and has_qty_uom):
+            items.append(clean_part_description(line))
+
+    return items[:10]
 
 
 def detect_oil(text):
@@ -1267,76 +1338,96 @@ def detect_oil(text):
 
     for line in text.splitlines():
         if re.search(r"Hero\s*4T\s*PLUS|engine\s*oil|\boil\b", line, flags=re.I):
-            oil_lines.append(line.strip())
+            if not re.search(r"policy|consent|whatsapp|marketing", line, flags=re.I):
+                oil_lines.append(line.strip())
 
-    if re.search(r"Hero\s*4T\s*PLUS", text, flags=re.I) and not oil_lines:
+    if re.search(r"Hero\s*4T\s*PLUS", text, flags=re.I) and not any(re.search(r"Hero\s*4T\s*PLUS", x, flags=re.I) for x in oil_lines):
         oil_lines.append("Hero 4T PLUS")
 
-    return len(oil_lines), "; ".join(oil_lines[:5])
+    clean_lines = []
+    seen = set()
+    for line in oil_lines:
+        key = line.lower()
+        if key not in seen:
+            clean_lines.append(line)
+            seen.add(key)
+
+    return len(clean_lines), "; ".join(clean_lines[:5]) if clean_lines else "-"
 
 
 def section_amount(section):
     if not section:
         return 0.0
 
-    total_match = re.findall(
-        r"(?:total|sub\s*total|amount)\D{0,25}(\d+(?:,\d+)*(?:\.\d+)?)",
-        section,
-        flags=re.I
-    )
-    if total_match:
-        return to_float(total_match[-1])
+    lines = [x.strip() for x in section.splitlines() if x.strip()]
+    total_lines = [line for line in lines if re.search(r"^total\b", line, flags=re.I)]
 
-    line_amounts = []
-    for line in section.splitlines():
-        nums = re.findall(r"\d+(?:,\d+)*(?:\.\d+)?", line)
+    if total_lines:
+        nums = re.findall(r"\d+(?:,\d+)*(?:\.\d+)?", total_lines[-1])
         if nums:
-            line_amounts.append(to_float(nums[-1]))
+            return to_float(nums[-1])
 
-    return max(line_amounts) if line_amounts else 0.0
+    direct = find_one([
+        r"Total\s*Labou?r\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Labou?r\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)"
+    ], section)
+    if direct:
+        return to_float(direct)
+
+    nums = re.findall(r"\d+(?:,\d+)*(?:\.\d+)?", section)
+    return to_float(nums[-1]) if nums else 0.0
 
 
 def extract_labour_total(text):
+    """
+    Labour Amount = Labour Details total + Other Labour Details total
+    """
     labour_section = get_section(
         text,
         ["Labour Details", "Labor Details"],
-        ["Other Labour Details", "Genuine Parts Details", "Spares Details", "Summary", "Grand Total", "Total Invoice"]
+        ["Other Labour Details", "Other Labor Details", "CGST", "SGST", "Net Amount", "Round Off", "Invoice Amount", "Total Invoice"]
     )
 
     other_section = get_section(
         text,
         ["Other Labour Details", "Other Labor Details"],
-        ["Genuine Parts Details", "Spares Details", "Summary", "Grand Total", "Total Invoice"]
+        ["CGST", "SGST", "Net Amount", "Round Off", "Invoice Amount", "Total Invoice"]
     )
 
-    labour_amount = section_amount(labour_section)
-    other_amount = section_amount(other_section)
+    return round(section_amount(labour_section) + section_amount(other_section), 2)
 
-    if labour_amount == 0:
-        labour_amount = to_float(find_one([
-            r"Labou?r\s*Details\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
-            r"Total\s*Labou?r\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
-            r"Labou?r\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)"
-        ], text))
 
-    if other_amount == 0:
-        other_amount = to_float(find_one([
-            r"Other\s*Labou?r\s*Details\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
-            r"Other\s*Labou?r\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)"
-        ], text))
+def extract_invoice_amount(text):
+    flat = re.sub(r"\s+", " ", text)
 
-    return round(labour_amount + other_amount, 2)
+    return to_float(find_one([
+        r"Total\s*Invoice\s*Value\s*\(In figure\)\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Total\s*Invoice\s*Value\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Invoice\s*Amount\s*Payable\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Net\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
+        r"Grand\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)"
+    ], flat))
 
 
 def parse_invoice(text):
+    """
+    Hero invoice parser.
+    Saves only clean business fields.
+    Does not save raw OCR, source file, confidence, GST, mobile, VIN, jobcard last 8.
+    """
     flat = re.sub(r"\s+", " ", text)
 
     invoice_no = find_one([
         r"Invoice\s*(?:No|Number)?\s*[:\-]?\s*([A-Z0-9\-\/]+)",
-        r"Bill\s*(?:No|Number)?\s*[:\-]?\s*([A-Z0-9\-\/]+)",
-        r"Job\s*Card\s*(?:No|Number)?\s*[:\-]?\s*([A-Z0-9\-\/]+)",
-        r"JC\s*(?:No)?\s*[:\-]?\s*([A-Z0-9\-\/]+)"
+        r"Bill\s*(?:No|Number)?\s*[:\-]?\s*([A-Z0-9\-\/]+)"
     ], flat)
+
+    if not invoice_no:
+        invoice_no = find_one([
+            r"Job\s*Card\s*(?:No|Number)?\s*[:\-]?\s*([A-Z0-9\-\/]+)",
+            r"JC\s*(?:No)?\s*[:\-]?\s*([A-Z0-9\-\/]+)"
+        ], flat)
 
     reg_no = find_one([
         r"Vehicle\s*(?:Reg|Registration)?\s*(?:No|Number)?\s*[:\-]?\s*([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{3,4})",
@@ -1345,36 +1436,30 @@ def parse_invoice(text):
     ], flat)
 
     bike_model = find_one([
-        r"Vehicle\s*Model\s*[:\-]?\s*([A-Za-z0-9 +._-]{3,45})",
-        r"Model\s*[:\-]?\s*([A-Za-z0-9 +._-]{3,45})"
+        r"Model\s*[:\-]?\s*([A-Za-z0-9 +._-]{2,45})\s+VIN\b",
+        r"Vehicle\s*Model\s*[:\-]?\s*([A-Za-z0-9 +._-]{2,45})",
+        r"Model\s*[:\-]?\s*([A-Za-z0-9 +._-]{2,45})"
     ], flat)
 
     customer_name = find_one([
-        r"Customer\s*Name\s*[:\-]?\s*([A-Za-z .]{3,45})",
-        r"Name\s*[:\-]?\s*([A-Za-z .]{3,45})"
+        r"Customer\s*Name\s*[:\-]?\s*([A-Za-z .]{2,45})\s+Invoice\s*No",
+        r"Customer\s*Name\s*[:\-]?\s*([A-Za-z .]{2,45})",
+        r"Name\s*[:\-]?\s*([A-Za-z .]{2,45})"
     ], flat)
 
-    total_amount = to_float(find_one([
-        r"Total\s*Invoice\s*Value\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
-        r"Grand\s*Total\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
-        r"Net\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)",
-        r"Total\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)"
-    ], flat))
-
-    spare_count = count_genuine_spare_items(text)
-    oil_count, oil_details = detect_oil(text)
-    labour_amount = extract_labour_total(text)
+    spare_items = extract_genuine_spare_details(text)
 
     return {
         "Customer Name": clean_customer_name(customer_name),
         "Invoice Number": invoice_no,
         "Registration Number": clean_reg_no(reg_no),
         "Bike Model": clean_bike_model(bike_model),
-        "Labour Amount": labour_amount,
-        "Spare Parts Count": spare_count,
-        "Oil Count": oil_count,
-        "Oil Details": oil_details,
-        "Total Amount": total_amount,
+        "Labour Amount": extract_labour_total(text),
+        "Spare Parts Count": count_genuine_spare_items(text),
+        "Oil Count": detect_oil(text)[0],
+        "Oil Details": detect_oil(text)[1],
+        "Spare Items Preview": "; ".join(spare_items) if spare_items else "-",
+        "Total Amount": extract_invoice_amount(text),
     }
 
 
@@ -1956,6 +2041,7 @@ def page_upload_invoice():
             "Spare Parts Count": 5,
             "Oil Count": 1,
             "Oil Details": "Hero 4T PLUS",
+            "Spare Items Preview": "Hero 4T PLUS; Oil Filter",
             "Total Amount": 7811,
         }
 
@@ -1999,6 +2085,7 @@ def page_upload_invoice():
         "Spare Parts Count": data.get("Spare Parts Count", 0),
         "Oil Count": data.get("Oil Count", 0),
         "Oil Details": data.get("Oil Details", ""),
+        "Spare Items Preview": data.get("Spare Items Preview", "-"),
         "Total Amount": data.get("Total Amount", 0),
         "Entry Type": "OCR Upload",
         "Status": "Active"
