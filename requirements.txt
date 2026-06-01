@@ -1,12 +1,12 @@
 streamlit
 pandas
 openpyxl
-gspread
-google-auth
-Pillow
+pillow
 qrcode
 reportlab
 pdfplumber
 PyPDF2
 pytesseract
 streamlit-js-eval
+gspread
+google-auth
