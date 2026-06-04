@@ -81,7 +81,7 @@ EMBEDDED_HERO_LOGO_B64 = ""
 
 COMPANY_LAT = 10.759652
 COMPANY_LON = 79.742739
-ALLOWED_RADIUS_METER = 400
+ALLOWED_RADIUS_METER = 100
 
 
 # ============================================================
