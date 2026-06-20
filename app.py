@@ -1985,6 +1985,17 @@ def create_excel_if_missing():
 
 
 @st.cache_data(ttl=15, show_spinner=False)
+
+def clean_duplicate_columns(df):
+    """
+    Remove duplicate column names safely.
+    """
+    if df is None:
+        return df
+
+    df = df.loc[:, ~df.columns.duplicated()]
+    return df
+    
 def read_sheet(sheet_name):
     create_excel_if_missing()
     df, err = google_read_sheet(sheet_name)
