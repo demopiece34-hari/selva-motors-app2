@@ -11,5 +11,5 @@ def show_loader(message="Loading...", wait_text="Please wait"):
         <div style="font-size:14px;color:#4b5563;margin-top:8px;">{wait_text}</div>
       </div>
     </div>
-    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+    <style>@keyframes spin{{to{{transform:rotate(360deg)}}}}</style>
     """, unsafe_allow_html=True)
