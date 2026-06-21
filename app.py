@@ -4293,6 +4293,21 @@ def clear_pdf_logo_cache():
 def page_dashboard():
     if not require_hero_show("dashboard", "🚀 SHOW DASHBOARD", "Loading Dashboard..."):
         return
+
+    if st.session_state.get("dashboard_loading", False):
+
+    show_loader(
+        "Loading Dashboard...",
+        "Reading Google Sheet"
+    )
+
+    dashboard_df = read_sheet("invoices")
+
+    st.session_state.dashboard_df = dashboard_df
+    st.session_state.dashboard_loading = False
+
+    st.rerun()
+    
     page_hero("Service Control Dashboard", "Role-based Selva Motors ERP command center with clean revenue, service entries and approvals.", st.session_state.get("role", ""))
 
     invoices_for_alert = read_sheet("invoices")
