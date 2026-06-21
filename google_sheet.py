@@ -63,7 +63,7 @@ DEFAULT_EMPTY_SHEETS = list(SHEET_SCHEMAS.keys())
 
 
 def get_sheet_id() -> str:
-    return str(st.secrets.get("SHEET_ID", "")).strip()
+    return str(st.secrets.get("1IRMCwvy4j6wugOoSq1R2JE8lK9_OJ4HWZ_-pttWKtho", "")).strip()
 
 
 def _service_account_info() -> dict[str, Any] | None:
