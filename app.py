@@ -4296,17 +4296,17 @@ def page_dashboard():
 
     if st.session_state.get("dashboard_loading", False):
 
-    show_loader(
-        "Loading Dashboard...",
-        "Reading Google Sheet"
-    )
+        show_loader(
+            "Loading Dashboard...",
+            "Reading Google Sheet"
+        )
 
-    dashboard_df = read_sheet("invoices")
+        dashboard_df = read_sheet("invoices")
 
-    st.session_state.dashboard_df = dashboard_df
-    st.session_state.dashboard_loading = False
+        st.session_state.dashboard_df = dashboard_df
+        st.session_state.dashboard_loading = False
 
-    st.rerun()
+        st.rerun()
     
     page_hero("Service Control Dashboard", "Role-based Selva Motors ERP command center with clean revenue, service entries and approvals.", st.session_state.get("role", ""))
 
