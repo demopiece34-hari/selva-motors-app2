@@ -3022,7 +3022,6 @@ def require_hero_show(page_key, button_text, loading_text="Loading..."):
         st.markdown("""
         <div class="cloud-view-panel">
             <h3>HERO SHOW</h3>
-            <p>Page open ஆனதும் data read ஆகாது. Button click பண்ணினா மட்டுமே required Google Sheet read ஆகும்.</p>
         </div>
         """, unsafe_allow_html=True)
         if st.button(button_text, use_container_width=True, key=f"{page_key}_hero_show_button"):
