@@ -3022,6 +3022,8 @@ def require_hero_show(page_key, button_text, loading_text="Loading..."):
         st.markdown("""
         <div class="cloud-view-panel">
             <h3>HERO SHOW</h3>
+            <p>🅲🅻🅸🅲🅺 🅷🅴🆁🅴 
+                      🔻 </p>
         </div>
         """, unsafe_allow_html=True)
         if st.button(button_text, use_container_width=True, key=f"{page_key}_hero_show_button"):
@@ -5943,6 +5945,8 @@ def require_hero_show(page_key, button_text, loading_text="Loading..."):
         st.markdown("""
         <div class="cloud-view-panel">
             <h3>HERO SHOW</h3>
+            <p>🅲🅻🅸🅲🅺 🅷🅴🆁🅴 
+                      🔻 </p>
         </div>
         """, unsafe_allow_html=True)
         if st.button(button_text, use_container_width=True, key=f"{page_key}_hero_show_button"):
