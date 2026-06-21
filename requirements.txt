@@ -1,9 +1,0 @@
-streamlit
-pandas
-gspread
-google-auth
-pillow
-reportlab
-pdfplumber
-pytesseract
-qrcode
