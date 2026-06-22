@@ -4829,9 +4829,16 @@ def page_reports():
                 daily_service_type = st.selectbox("Service Type", ["All", "FSC", "Paid Service", "General", "Joyride", "Accident"], key="daily_report_service_type")
 
             if selected_daily_tech != "All Technicians":
-                daily_df = daily_df[daily_df["Technician Name"].astype(str) == selected_daily_tech]
-            if daily_service_type != "All" and "Service Type" in daily_df.columns:
-                daily_df = daily_df[daily_df["Service Type"].astype(str) == daily_service_type]
+                daily_df = daily_df[
+                    daily_df["Technician Name"]
+                    .astype(str)
+                    .str.strip()
+                    .str.upper()
+                    ==
+                    str(selected_daily_tech)
+                    .strip()
+                    .upper()
+                ]
 
         daily_entries = len(daily_df)
         daily_labour = pd.to_numeric(daily_df.get("Labour Amount", pd.Series([])), errors="coerce").fillna(0).sum() if not daily_df.empty else 0
