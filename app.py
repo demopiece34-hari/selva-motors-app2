@@ -2896,10 +2896,11 @@ def parse_invoice(text):
         r"Reg\s*(?:No|Number)?\s*[:\-]?\s*([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{3,4})",
         r"\b([A-Z]{2}\s?\d{1,2}\s?[A-Z]{1,3}\s?\d{3,4})\b"
     ], flat)
-    registration_number = str(registration_number or "").strip()
 
-    if not registration_number:
-        registration_number = "FR"
+    reg_no = str(reg_no or "").strip()
+
+    if not reg_no:
+        reg_no = "FR"
 
     bike_model = find_one([
         r"Model\s*[:\-]?\s*([A-Za-z0-9 +._-]{2,45})\s+VIN\b",
