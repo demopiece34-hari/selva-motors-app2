@@ -4844,6 +4844,13 @@ def page_reports():
         daily_labour = pd.to_numeric(daily_df.get("Labour Amount", pd.Series([])), errors="coerce").fillna(0).sum() if not daily_df.empty else 0
         daily_spare = pd.to_numeric(daily_df.get("Spare Amount", pd.Series([])), errors="coerce").fillna(0).sum() if not daily_df.empty else 0
 
+        st.write("Rows Found:", len(daily_df))
+
+        if not daily_df.empty:
+            st.write(daily_df[
+                ["Technician Name", "Date", "Labour Amount", "Spare Amount"]
+            ].head())
+
         report_summary_cards([
             ("Daily Entries", daily_entries, "Selected date"),
             ("Total Labour Amount", f"₹{daily_labour:,.0f}", "PDF shows this"),
