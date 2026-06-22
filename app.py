@@ -2751,22 +2751,39 @@ def extract_genuine_spare_details(text):
     return items[:20]
 
 
-
 def detect_oil(text):
     """
-    Detect oil internally but do not save/show oil item names.
+    Detect Hero engine oil internally.
     Supports:
-    SPDMCYL09SS-HERO 4T PLUS 10W30 SL MA2(1000 ML)
-    SPDSCOT01SS-HERO 4T PLUS 10W30 SL MB(800 ML)
+
+    SPDMCYL02SS-HERO 4T PLUS 900 ML MA2
+    SPDMCYL09SS-HERO 4T PLUS 10W30 SL MA2 (1000 ML)
+    SPDSCOT01SS-HERO 4T PLUS 10W30 SL MB (800 ML)
+
+    Returns:
+        (1, "-") if oil found
+        (0, "-") if oil not found
     """
+
     if not text:
         return 0, "-"
 
-    flat = re.sub(r"\s+", " ", text).upper()
+    flat = re.sub(r"\s+", " ", str(text)).upper()
+
     oil_patterns = [
+
+        # Exact Hero Oil Part Numbers
+        r"SPDMCYL02SS",
+        r"SPDMCYL09SS",
+        r"SPDSCOT01SS",
+
+        # Full Oil Descriptions
+        r"HERO\s*4T\s*PLUS\s*900\s*ML\s*MA2",
+        r"HERO\s*4T\s*PLUS\s*10W30\s*SL\s*MA2",
+        r"HERO\s*4T\s*PLUS\s*10W30\s*SL\s*MB",
+
+        # Generic Keywords
         r"HERO\s*4T\s*PLUS",
-        r"SPDMCYL09SS\s*-\s*HERO\s*4T",
-        r"SPDSCOT01SS\s*-\s*HERO\s*4T",
         r"10W30\s*SL\s*MA2",
         r"10W30\s*SL\s*MB",
         r"ENGINE\s*OIL"
