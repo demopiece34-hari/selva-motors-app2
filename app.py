@@ -4755,9 +4755,29 @@ def page_reports():
             else:
                 selected_view = st.radio("Report View Type", ["All Technicians", "Particular Technician"], horizontal=True, key="service_report_view_type")
                 if selected_view == "Particular Technician":
-                    tech_names = sorted([x for x in service_df["Technician Name"].astype(str).unique().tolist() if x.strip()])
-                    selected_tech = st.selectbox("Select Technician", tech_names, key="service_report_tech")
-                    service_df = service_df[service_df["Technician Name"].astype(str) == selected_tech]
+                    tech_names = sorted([
+                        x for x in service_df["Technician Name"]
+                        .astype(str)
+                        .str.strip()
+                        .unique()
+                        .tolist()
+                        if x.strip()
+                    ])
+
+                    selected_tech = st.selectbox(
+                        "Select Technician",
+                        ["All Technicians"] + tech_names,
+                        key="service_report_tech"
+                    )
+
+                    if selected_tech != "All Technicians":
+                        service_df = service_df[
+                            service_df["Technician Name"]
+                            .astype(str)
+                            .str.strip()
+                            ==
+                            selected_tech.strip()
+                        ]
 
                 c1, c2, c3 = st.columns(3)
                 with c1:
