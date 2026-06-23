@@ -4829,8 +4829,15 @@ def page_reports():
         if is_technician():
             report_date = today_str()
             selected_daily_tech = st.session_state.get("employee_name", "")
-            daily_df = daily_df_base[
-                (daily_df_base["Date"].astype(str) == report_date) &
+                daily_df_base["Date"] = (
+                    daily_df_base["Date"]
+                    .astype(str)
+                    .str.strip()
+                )
+
+                daily_df = daily_df_base[
+                    daily_df_base["Date"] == str(report_date).strip()
+                ]
                 (daily_df_base["User ID"].astype(str) == st.session_state.get("user_id", ""))
             ]
             st.info("Technician view: today own daily report only.")
