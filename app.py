@@ -4719,8 +4719,24 @@ def page_upload_invoice():
 def page_reports():
     if not require_hero_show("reports", "📋 SHOW REPORTS", "Loading Reports..."):
         return
-    page_hero("Reports", "Professional report center for service entries, daily technician report and attendance report.", "Report Center")
+
+    page_hero(
+        "Reports",
+        "Professional report center for service entries, daily technician report and attendance report.",
+        "Report Center"
+    )
     report_center_header()
+
+    def _norm_date(val):
+        """Normalize dates to DD-MM-YYYY for safe comparison."""
+        dt = pd.to_datetime(
+            str(val).strip().replace("/", "-"),
+            dayfirst=True,
+            errors="coerce"
+        )
+        if pd.isna(dt):
+            return str(val).strip().replace("/", "-")
+        return dt.strftime("%d-%m-%Y")
 
     invoices = read_sheet("invoices")
     attendance_df = read_sheet("attendance")
@@ -4737,23 +4753,38 @@ def page_reports():
 
     tabs = st.tabs(["📑 Service Reports", "🏍️ Daily Technician Report", "📍 Monthly Attendance Report"])
 
+    # ============================================================
+    # TAB 1 - SERVICE REPORTS
+    # ============================================================
     with tabs[0]:
-        report_control_panel("Service Report Control", "All technicians or particular technician select pannitu service report generate pannalam.")
+        report_control_panel(
+            "Service Report Control",
+            "All technicians or particular technician select pannitu service report generate pannalam."
+        )
 
         if invoices.empty:
             st.info("No invoice entries found.")
         else:
             service_df = invoices.copy()
 
+            if "Date" in service_df.columns:
+                service_df["Date"] = service_df["Date"].astype(str).apply(_norm_date)
+
             if is_technician():
                 service_df = service_df[
-                    (service_df["User ID"].astype(str) == st.session_state.get("user_id", "")) &
-                    (service_df["Date"].astype(str) == today_str())
+                    (service_df["User ID"].astype(str).str.strip() == str(st.session_state.get("user_id", "")).strip()) &
+                    (service_df["Date"].astype(str).str.strip() == _norm_date(today_str()))
                 ]
                 st.info("Technician view: only today’s own entries are shown.")
                 selected_view = "My Today Entries"
             else:
-                selected_view = st.radio("Report View Type", ["All Technicians", "Particular Technician"], horizontal=True, key="service_report_view_type")
+                selected_view = st.radio(
+                    "Report View Type",
+                    ["All Technicians", "Particular Technician"],
+                    horizontal=True,
+                    key="service_report_view_type"
+                )
+
                 if selected_view == "Particular Technician":
                     tech_names = sorted([
                         x for x in service_df["Technician Name"]
@@ -4785,20 +4816,33 @@ def page_reports():
                 with c2:
                     reg_filter = st.text_input("Registration Number Filter", value="", key="service_report_reg")
                 with c3:
-                    service_type_filter = st.selectbox("Service Type Filter", ["All", "FSC", "Paid Service", "General", "Joyride", "Accident"], key="service_report_type")
+                    service_type_filter = st.selectbox(
+                        "Service Type Filter",
+                        ["All", "FSC", "Paid Service", "General", "Joyride", "Accident"],
+                        key="service_report_type"
+                    )
 
                 if date_filter.strip():
-                    service_df = service_df[service_df["Date"].astype(str) == date_filter.strip()]
+                    service_df = service_df[
+                        service_df["Date"].astype(str).apply(_norm_date) == _norm_date(date_filter.strip())
+                    ]
+
                 if reg_filter.strip():
                     reg_clean = clean_reg_no(reg_filter)
-                    service_df = service_df[service_df["Registration Number"].astype(str).str.upper() == reg_clean]
+                    service_df = service_df[
+                        service_df["Registration Number"].astype(str).str.upper().str.strip() == reg_clean
+                    ]
+
                 if service_type_filter != "All" and "Service Type" in service_df.columns:
                     service_df = service_df[service_df["Service Type"].astype(str) == service_type_filter]
 
             total_entries = len(service_df)
             total_revenue = service_df["Total Amount"].sum() if "Total Amount" in service_df.columns else 0
             total_labour = service_df["Labour Amount"].sum() if "Labour Amount" in service_df.columns else 0
-            total_spare = pd.to_numeric(service_df.get("Spare Amount", pd.Series([])), errors="coerce").fillna(0).sum() if not service_df.empty else 0
+            total_spare = pd.to_numeric(
+                service_df.get("Spare Amount", pd.Series([])),
+                errors="coerce"
+            ).fillna(0).sum() if not service_df.empty else 0
 
             report_summary_cards([
                 ("Vehicle Entries", total_entries, "Selected report"),
@@ -4807,12 +4851,20 @@ def page_reports():
                 ("Spare Amount", f"₹{total_spare:,.0f}", "Genuine parts total"),
             ])
 
-            show_cols = ["Technician Name", "Date", "Job Card Number", "Registration Number", "Bike Model", "Service Type", "Spare Amount", "Labour Amount", "Total Amount", "Entry Type", "Status"]
+            show_cols = [
+                "Technician Name", "Date", "Job Card Number", "Registration Number",
+                "Bike Model", "Service Type", "Spare Amount", "Labour Amount",
+                "Total Amount", "Entry Type", "Status"
+            ]
             existing_show_cols = [c for c in show_cols if c in service_df.columns]
             st.dataframe(service_df[existing_show_cols] if existing_show_cols else service_df, use_container_width=True)
 
             if st.button("Generate Service PDF Report", use_container_width=True, key="generate_service_pdf_report"):
-                pdf = generate_report_pdf(service_df, f"Selva Motors Service Report - {selected_view}", "selva_motors_service_report.pdf")
+                pdf = generate_report_pdf(
+                    service_df,
+                    f"Selva Motors Service Report - {selected_view}",
+                    "selva_motors_service_report.pdf"
+                )
                 st.session_state["generated_report_pdf"] = pdf
                 st.success("Service PDF report generated.")
 
@@ -4820,40 +4872,80 @@ def page_reports():
                 pdf_path = st.session_state["generated_report_pdf"]
                 if Path(pdf_path).exists():
                     with open(pdf_path, "rb") as f:
-                        st.download_button("Download Service PDF Report", f, file_name=Path(pdf_path).name, mime="application/pdf", use_container_width=True, key="download_service_pdf_report")
+                        st.download_button(
+                            "Download Service PDF Report",
+                            f,
+                            file_name=Path(pdf_path).name,
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key="download_service_pdf_report"
+                        )
 
+    # ============================================================
+    # TAB 2 - DAILY TECHNICIAN REPORT
+    # ============================================================
     with tabs[1]:
-        report_control_panel("Daily Technician Report", "Daily report-ku date and technician select pannunga. Total Amount hide; Total Labour Amount mattum PDF-la show aagum.")
+        report_control_panel(
+            "Daily Technician Report",
+            "Daily report-ku date and technician select pannunga. Total Amount hide; Total Labour Amount mattum PDF-la show aagum."
+        )
 
         daily_df_base = invoices.copy()
+
+        if "Date" in daily_df_base.columns:
+            daily_df_base["Date"] = daily_df_base["Date"].astype(str).apply(_norm_date)
+
         if is_technician():
-            report_date = today_str()
+            report_date = _norm_date(today_str())
             selected_daily_tech = st.session_state.get("employee_name", "")
-                daily_df_base["Date"] = (
-                    daily_df_base["Date"]
+
+            daily_df = daily_df_base[
+                (daily_df_base["Date"] == report_date) &
+                (
+                    daily_df_base["User ID"]
                     .astype(str)
                     .str.strip()
+                    ==
+                    str(st.session_state.get("user_id", "")).strip()
                 )
-
-                daily_df = daily_df_base[
-                    daily_df_base["Date"] == str(report_date).strip()
-                ]
-                (daily_df_base["User ID"].astype(str) == st.session_state.get("user_id", ""))
             ]
+
             st.info("Technician view: today own daily report only.")
         else:
             c1, c2, c3 = st.columns(3)
             with c1:
-                report_date = st.text_input("Daily Report Date DD-MM-YYYY", value=today_str(), key="daily_report_date")
-            daily_df = daily_df_base[daily_df_base["Date"].astype(str) == report_date]
+                report_date = st.text_input(
+                    "Daily Report Date DD-MM-YYYY",
+                    value=today_str(),
+                    key="daily_report_date"
+                )
+
+            report_date = _norm_date(report_date)
+
+            daily_df = daily_df_base[
+                daily_df_base["Date"] == report_date
+            ]
 
             tech_options = ["All Technicians"]
             if not daily_df.empty and "Technician Name" in daily_df.columns:
-                tech_options += sorted([x for x in daily_df["Technician Name"].astype(str).unique().tolist() if x.strip()])
+                tech_options += sorted([
+                    x for x in daily_df["Technician Name"].astype(str).unique().tolist()
+                    if x.strip()
+                ])
+
             with c2:
-                selected_daily_tech = st.selectbox("Select Technician", tech_options, key="daily_report_tech")
+                selected_daily_tech = st.selectbox(
+                    "Select Technician",
+                    tech_options,
+                    key="daily_report_tech"
+                )
+
             with c3:
-                daily_service_type = st.selectbox("Service Type", ["All", "FSC", "Paid Service", "General", "Joyride", "Accident"], key="daily_report_service_type")
+                daily_service_type = st.selectbox(
+                    "Service Type",
+                    ["All", "FSC", "Paid Service", "General", "Joyride", "Accident"],
+                    key="daily_report_service_type"
+                )
 
             if selected_daily_tech != "All Technicians":
                 daily_df = daily_df[
@@ -4862,21 +4954,22 @@ def page_reports():
                     .str.strip()
                     .str.upper()
                     ==
-                    str(selected_daily_tech)
-                    .strip()
-                    .upper()
+                    str(selected_daily_tech).strip().upper()
                 ]
 
+            if daily_service_type != "All" and "Service Type" in daily_df.columns:
+                daily_df = daily_df[daily_df["Service Type"].astype(str) == daily_service_type]
+
         daily_entries = len(daily_df)
-        daily_labour = pd.to_numeric(daily_df.get("Labour Amount", pd.Series([])), errors="coerce").fillna(0).sum() if not daily_df.empty else 0
-        daily_spare = pd.to_numeric(daily_df.get("Spare Amount", pd.Series([])), errors="coerce").fillna(0).sum() if not daily_df.empty else 0
+        daily_labour = pd.to_numeric(
+            daily_df.get("Labour Amount", pd.Series([])),
+            errors="coerce"
+        ).fillna(0).sum() if not daily_df.empty else 0
 
-        st.write("Rows Found:", len(daily_df))
-
-        if not daily_df.empty:
-            st.write(daily_df[
-                ["Technician Name", "Date", "Labour Amount", "Spare Amount"]
-            ].head())
+        daily_spare = pd.to_numeric(
+            daily_df.get("Spare Amount", pd.Series([])),
+            errors="coerce"
+        ).fillna(0).sum() if not daily_df.empty else 0
 
         report_summary_cards([
             ("Daily Entries", daily_entries, "Selected date"),
@@ -4885,7 +4978,10 @@ def page_reports():
             ("Technician", selected_daily_tech, "Selected view"),
         ])
 
-        daily_show_cols = ["Technician Name", "Date", "Job Card Number", "Registration Number", "Bike Model", "Service Type", "Labour Amount", "Status"]
+        daily_show_cols = [
+            "Technician Name", "Date", "Job Card Number", "Registration Number",
+            "Bike Model", "Service Type", "Labour Amount", "Status"
+        ]
         daily_existing_cols = [c for c in daily_show_cols if c in daily_df.columns]
         st.dataframe(daily_df[daily_existing_cols] if daily_existing_cols else daily_df, use_container_width=True)
 
@@ -4898,15 +4994,31 @@ def page_reports():
             daily_pdf_path = st.session_state["daily_technician_report_pdf"]
             if Path(daily_pdf_path).exists():
                 with open(daily_pdf_path, "rb") as f:
-                    st.download_button("Download Daily Technician Service Report PDF", f, file_name=Path(daily_pdf_path).name, mime="application/pdf", use_container_width=True, key="download_daily_tech_report")
+                    st.download_button(
+                        "Download Daily Technician Service Report PDF",
+                        f,
+                        file_name=Path(daily_pdf_path).name,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="download_daily_tech_report"
+                    )
 
+    # ============================================================
+    # TAB 3 - MONTHLY ATTENDANCE REPORT
+    # ============================================================
     with tabs[2]:
-        report_control_panel("Monthly Attendance Report", "Today attendance report removed. Month-wise attendance report mattum generate pannalam.")
+        report_control_panel(
+            "Monthly Attendance Report",
+            "Today attendance report removed. Month-wise attendance report mattum generate pannalam."
+        )
 
         if attendance_df.empty:
             st.info("No attendance entries found.")
         else:
             att_df = attendance_df.copy()
+
+            if "Date" in att_df.columns:
+                att_df["Date"] = att_df["Date"].astype(str).apply(_norm_date)
 
             st.markdown("""
             <div class="monthly-att-panel">
@@ -4917,7 +5029,11 @@ def page_reports():
 
             if is_technician() or is_prathisha():
                 selected_att_user = st.session_state.get("employee_name", "")
-                att_df = att_df[att_df["User ID"].astype(str) == st.session_state.get("user_id", "")]
+                att_df = att_df[
+                    att_df["User ID"].astype(str).str.strip()
+                    ==
+                    str(st.session_state.get("user_id", "")).strip()
+                ]
                 st.info("User view: your own monthly attendance only.")
             else:
                 att_view_type = st.radio(
@@ -4929,9 +5045,12 @@ def page_reports():
 
                 selected_att_user = "All Users"
                 if att_view_type == "Particular User":
-                    users = sorted([x for x in att_df["Technician Name"].astype(str).unique().tolist() if x.strip()])
+                    users = sorted([
+                        x for x in att_df["Technician Name"].astype(str).unique().tolist()
+                        if x.strip()
+                    ])
                     selected_att_user = st.selectbox("Select User", users, key="monthly_attendance_user")
-                    att_df = att_df[att_df["Technician Name"].astype(str) == selected_att_user]
+                    att_df = att_df[att_df["Technician Name"].astype(str).str.strip() == selected_att_user.strip()]
 
             current_month = app_now().strftime("%m-%Y")
             month_key = st.text_input("Month Filter MM-YYYY", value=current_month, key="monthly_attendance_month")
@@ -4940,11 +5059,16 @@ def page_reports():
                 att_dates = pd.to_datetime(att_df["Date"], format="%d-%m-%Y", errors="coerce")
                 att_df = att_df[att_dates.dt.strftime("%m-%Y") == month_key]
 
-            att_status_filter = st.selectbox("Attendance Status", ["All", "Present", "Absent", "Half Day"], key="monthly_attendance_status")
+            att_status_filter = st.selectbox(
+                "Attendance Status",
+                ["All", "Present", "Absent", "Half Day"],
+                key="monthly_attendance_status"
+            )
             if att_status_filter != "All" and "Attendance Status" in att_df.columns:
                 att_df = att_df[att_df["Attendance Status"].astype(str) == att_status_filter]
 
             present_count = len(att_df[att_df["Attendance Status"].astype(str).str.lower() == "present"]) if "Attendance Status" in att_df.columns else 0
+
             report_summary_cards([
                 ("Monthly Rows", len(att_df), "Selected month"),
                 ("Present Count", present_count, "GPS marked"),
@@ -4973,7 +5097,6 @@ def page_reports():
                             use_container_width=True,
                             key="download_monthly_attendance_pdf_report"
                         )
-
 
 # ============================================================
 # SEARCH
