@@ -3873,17 +3873,17 @@ def menu_page():
         ]
     elif is_manager():
         pages = [
-            "Dashboard", "Attendance", "Upload Invoice", "Reports", "Search", "Hero Bikes",
+            "Dashboard", "Attendance", "Reports", "Search", "Hero Bikes",
             "Customer Service History", "Manual Invoice Generator", "Duplicate Upload Finder"
         ]
     elif is_technician():
         pages = [
-            "Dashboard", "Attendance", "Upload Invoice", 
+            "Dashboard", "Attendance", "Upload Invoice", "Search",
             "Customer Service History", "Manual Invoice Generator",
             "Delete Invoice Request", "Hero Bikes"
         ]
     elif is_prathisha():
-        pages = ["Dashboard", "Attendance"]
+        pages = ["Dashboard", "Attendance", "Hero Bikes"]
     else:
         pages = ["Dashboard"]
 
