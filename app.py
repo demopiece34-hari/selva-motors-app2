@@ -3868,19 +3868,19 @@ def menu_page():
 
     if is_admin():
         pages = [
-            "Dashboard", "Reports", "Search",
+            "Dashboard", "Reports", "Search", "Hero Bikes",
             "Customer Service History", "Admin Panel"
         ]
     elif is_manager():
         pages = [
-            "Dashboard", "Attendance", "Upload Invoice", "Reports", "Search",
+            "Dashboard", "Attendance", "Upload Invoice", "Reports", "Search", "Hero Bikes",
             "Customer Service History", "Manual Invoice Generator", "Duplicate Upload Finder"
         ]
     elif is_technician():
         pages = [
-            "Dashboard", "Attendance", "Upload Invoice",
+            "Dashboard", "Attendance", "Upload Invoice", 
             "Customer Service History", "Manual Invoice Generator",
-            "Delete Invoice Request"
+            "Delete Invoice Request", "Hero Bikes"
         ]
     elif is_prathisha():
         pages = ["Dashboard", "Attendance"]
@@ -3893,7 +3893,7 @@ def menu_page():
         "Upload Invoice": "📄",
         "Reports": "📑",
         "Search": "🔍",
-        "Hero Bikes",
+        "Hero Bikes": "🏍️",
         "Customer Service History": "🧾",
         "Manual Invoice Generator": "🧾",
         "Admin Panel": "⚙️",
