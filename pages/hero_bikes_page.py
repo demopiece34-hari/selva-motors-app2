@@ -258,8 +258,8 @@ def page_hero_bikes():
 
     if "hero_bikes_lang" not in st.session_state:
         st.session_state["hero_bikes_lang"] = "English"
+        
     lang = st.sidebar.selectbox("Language", ["English", "Tamil", "Thanglish"], index=0, key="hero_bikes_lang")
-    
 
     st.markdown(
         f"""
