@@ -257,7 +257,7 @@ def page_hero_bikes():
     )
 
     lang = st.sidebar.selectbox("Language", ["English", "Tamil", "Thanglish"], index=0, key="hero_bikes_lang")
-    st.session_state["hero_bikes_lang"] = lang
+    
 
     st.markdown(
         f"""
