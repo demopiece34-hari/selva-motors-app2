@@ -256,7 +256,7 @@ def page_hero_bikes():
         unsafe_allow_html=True,
     )
         
-    lang = st.sidebar.selectbox("Language", ["Tamil", "Thanglish"], index=0, key="hero_bikes_lang")
+    lang = st.sidebar.selectbox("Language", ["Tamil"], index=0, key="hero_bikes_lang")
 
     st.markdown(
         f"""
