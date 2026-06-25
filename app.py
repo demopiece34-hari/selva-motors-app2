@@ -4711,8 +4711,7 @@ def page_upload_invoice():
                 st.session_state.pop("ocr_preview", None)
                 st.success("Entry saved to Excel. Upload preview cleared.")
                 st.rerun()
-
-
+                       
 # ============================================================
 # REPORTS
 # ============================================================
@@ -4738,6 +4737,26 @@ def page_reports():
             return str(val).strip().replace("/", "-")
         return dt.strftime("%d-%m-%Y")
 
+    def _render_issue_panel(title, issues):
+        if not issues:
+            return
+
+        st.markdown(
+            f"""
+            <div class="approval-card" style="border-left:6px solid #dc2626; background:#fff5f5;">
+                <h3 style="margin:0 0 6px 0; color:#991b1b;">{title}</h3>
+                <p style="margin:0 0 8px 0; color:#7f1d1d; font-weight:700;">
+                    Below issues are found in the report data. Fix suggestions are shown under each issue.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        for idx, (problem, fix) in enumerate(issues, start=1):
+            st.error(f"{idx}. {problem}")
+            st.info(f"Fix: {fix}")
+
     invoices = read_sheet("invoices")
     attendance_df = read_sheet("attendance")
 
@@ -4750,6 +4769,75 @@ def page_reports():
         invoices["Labour Amount"] = pd.to_numeric(invoices["Labour Amount"], errors="coerce").fillna(0)
     else:
         invoices["Labour Amount"] = 0
+
+    # ------------------------------------------------------------
+    # Top diagnostics
+    # ------------------------------------------------------------
+    debug_issues = []
+
+    if invoices.empty:
+        debug_issues.append((
+            "Invoices sheet is empty.",
+            "Save at least one invoice entry in the invoices sheet. Check OCR upload save function."
+        ))
+    else:
+        expected_invoice_cols = [
+            "Entry ID", "Date", "Technician Name", "User ID", "Invoice Number",
+            "Job Card Number", "Registration Number", "Bike Model", "Service Type",
+            "Labour Amount", "Spare Parts Count", "Spare Amount", "Oil Change Status",
+            "Total Amount", "Entry Type", "Status"
+        ]
+        missing_invoice_cols = [c for c in expected_invoice_cols if c not in invoices.columns]
+        if missing_invoice_cols:
+            debug_issues.append((
+                "Missing invoice columns: " + ", ".join(missing_invoice_cols),
+                "Make sure save_invoice_entry_from_data() writes the same exact column names into the invoices sheet."
+            ))
+
+        if "Date" in invoices.columns:
+            date_vals = invoices["Date"].astype(str).str.strip()
+            if date_vals.eq("").all():
+                debug_issues.append((
+                    "Invoice Date column is empty.",
+                    "Check today_str() and the save_invoice_entry_from_data() function. Date must be saved for every invoice."
+                ))
+
+        if "Technician Name" in invoices.columns:
+            tech_vals = invoices["Technician Name"].astype(str).str.strip()
+            if tech_vals.eq("").all():
+                debug_issues.append((
+                    "Technician Name column is empty.",
+                    "Check the login/session state value used while saving the invoice."
+                ))
+
+    if attendance_df.empty:
+        debug_issues.append((
+            "Attendance sheet is empty.",
+            "Save at least one attendance entry if you want monthly attendance report data."
+        ))
+    else:
+        expected_att_cols = ["Date", "Time", "User ID", "Technician Name", "Role", "Attendance Status"]
+        missing_att_cols = [c for c in expected_att_cols if c not in attendance_df.columns]
+        if missing_att_cols:
+            debug_issues.append((
+                "Missing attendance columns: " + ", ".join(missing_att_cols),
+                "Make sure attendance save function writes the same exact column names into the attendance sheet."
+            ))
+
+    if debug_issues:
+        _render_issue_panel("Report Data Check Failed", debug_issues)
+
+        with st.expander("Show raw sheet debug data", expanded=False):
+            st.write("Invoice Columns:", list(invoices.columns))
+            st.write("Attendance Columns:", list(attendance_df.columns))
+            if not invoices.empty and "Date" in invoices.columns:
+                st.write("Invoice Date Values:", invoices["Date"].astype(str).unique().tolist())
+            if not invoices.empty and "Technician Name" in invoices.columns:
+                st.write("Invoice Technician Names:", invoices["Technician Name"].astype(str).unique().tolist())
+            if not attendance_df.empty and "Date" in attendance_df.columns:
+                st.write("Attendance Date Values:", attendance_df["Date"].astype(str).unique().tolist())
+            if not attendance_df.empty and "Technician Name" in attendance_df.columns:
+                st.write("Attendance Technician Names:", attendance_df["Technician Name"].astype(str).unique().tolist())
 
     tabs = st.tabs(["📑 Service Reports", "🏍️ Daily Technician Report", "📍 Monthly Attendance Report"])
 
@@ -4836,50 +4924,56 @@ def page_reports():
                 if service_type_filter != "All" and "Service Type" in service_df.columns:
                     service_df = service_df[service_df["Service Type"].astype(str) == service_type_filter]
 
-            total_entries = len(service_df)
-            total_revenue = service_df["Total Amount"].sum() if "Total Amount" in service_df.columns else 0
-            total_labour = service_df["Labour Amount"].sum() if "Labour Amount" in service_df.columns else 0
-            total_spare = pd.to_numeric(
-                service_df.get("Spare Amount", pd.Series([])),
-                errors="coerce"
-            ).fillna(0).sum() if not service_df.empty else 0
+            if invoices.empty:
+                st.error("No service data available.")
+            elif len(service_df) == 0:
+                st.error("No service rows matched the selected filter.")
+                st.info("Fix: check Date format, Technician Name, Registration Number, and Service Type filters.")
+            else:
+                total_entries = len(service_df)
+                total_revenue = service_df["Total Amount"].sum() if "Total Amount" in service_df.columns else 0
+                total_labour = service_df["Labour Amount"].sum() if "Labour Amount" in service_df.columns else 0
+                total_spare = pd.to_numeric(
+                    service_df.get("Spare Amount", pd.Series(dtype="float64")),
+                    errors="coerce"
+                ).fillna(0).sum() if not service_df.empty else 0
 
-            report_summary_cards([
-                ("Vehicle Entries", total_entries, "Selected report"),
-                ("Total Revenue", f"₹{total_revenue:,.0f}", "Service entries"),
-                ("Labour Amount", f"₹{total_labour:,.0f}", "Labour total"),
-                ("Spare Amount", f"₹{total_spare:,.0f}", "Genuine parts total"),
-            ])
+                report_summary_cards([
+                    ("Vehicle Entries", total_entries, "Selected report"),
+                    ("Total Revenue", f"₹{total_revenue:,.0f}", "Service entries"),
+                    ("Labour Amount", f"₹{total_labour:,.0f}", "Labour total"),
+                    ("Spare Amount", f"₹{total_spare:,.0f}", "Genuine parts total"),
+                ])
 
-            show_cols = [
-                "Technician Name", "Date", "Job Card Number", "Registration Number",
-                "Bike Model", "Service Type", "Spare Amount", "Labour Amount",
-                "Total Amount", "Entry Type", "Status"
-            ]
-            existing_show_cols = [c for c in show_cols if c in service_df.columns]
-            st.dataframe(service_df[existing_show_cols] if existing_show_cols else service_df, use_container_width=True)
+                show_cols = [
+                    "Technician Name", "Date", "Job Card Number", "Registration Number",
+                    "Bike Model", "Service Type", "Spare Amount", "Labour Amount",
+                    "Total Amount", "Entry Type", "Status"
+                ]
+                existing_show_cols = [c for c in show_cols if c in service_df.columns]
+                st.dataframe(service_df[existing_show_cols] if existing_show_cols else service_df, use_container_width=True)
 
-            if st.button("Generate Service PDF Report", use_container_width=True, key="generate_service_pdf_report"):
-                pdf = generate_report_pdf(
-                    service_df,
-                    f"Selva Motors Service Report - {selected_view}",
-                    "selva_motors_service_report.pdf"
-                )
-                st.session_state["generated_report_pdf"] = pdf
-                st.success("Service PDF report generated.")
+                if st.button("Generate Service PDF Report", use_container_width=True, key="generate_service_pdf_report"):
+                    pdf = generate_report_pdf(
+                        service_df,
+                        f"Selva Motors Service Report - {selected_view}",
+                        "selva_motors_service_report.pdf"
+                    )
+                    st.session_state["generated_report_pdf"] = pdf
+                    st.success("Service PDF report generated.")
 
-            if st.session_state.get("generated_report_pdf"):
-                pdf_path = st.session_state["generated_report_pdf"]
-                if Path(pdf_path).exists():
-                    with open(pdf_path, "rb") as f:
-                        st.download_button(
-                            "Download Service PDF Report",
-                            f,
-                            file_name=Path(pdf_path).name,
-                            mime="application/pdf",
-                            use_container_width=True,
-                            key="download_service_pdf_report"
-                        )
+                if st.session_state.get("generated_report_pdf"):
+                    pdf_path = st.session_state["generated_report_pdf"]
+                    if Path(pdf_path).exists():
+                        with open(pdf_path, "rb") as f:
+                            st.download_button(
+                                "Download Service PDF Report",
+                                f,
+                                file_name=Path(pdf_path).name,
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key="download_service_pdf_report"
+                            )
 
     # ============================================================
     # TAB 2 - DAILY TECHNICIAN REPORT
@@ -4960,48 +5054,52 @@ def page_reports():
             if daily_service_type != "All" and "Service Type" in daily_df.columns:
                 daily_df = daily_df[daily_df["Service Type"].astype(str) == daily_service_type]
 
-        daily_entries = len(daily_df)
-        daily_labour = pd.to_numeric(
-            daily_df.get("Labour Amount", pd.Series([])),
-            errors="coerce"
-        ).fillna(0).sum() if not daily_df.empty else 0
+        if len(daily_df) == 0:
+            st.error("No daily technician rows matched the selected date / technician filter.")
+            st.info("Fix: check Date format first, then Technician Name selection, then User ID matching.")
+        else:
+            daily_entries = len(daily_df)
+            daily_labour = pd.to_numeric(
+                daily_df.get("Labour Amount", pd.Series(dtype="float64")),
+                errors="coerce"
+            ).fillna(0).sum() if not daily_df.empty else 0
 
-        daily_spare = pd.to_numeric(
-            daily_df.get("Spare Amount", pd.Series([])),
-            errors="coerce"
-        ).fillna(0).sum() if not daily_df.empty else 0
+            daily_spare = pd.to_numeric(
+                daily_df.get("Spare Amount", pd.Series(dtype="float64")),
+                errors="coerce"
+            ).fillna(0).sum() if not daily_df.empty else 0
 
-        report_summary_cards([
-            ("Daily Entries", daily_entries, "Selected date"),
-            ("Total Labour Amount", f"₹{daily_labour:,.0f}", "PDF shows this"),
-            ("Spare Amount", f"₹{daily_spare:,.0f}", "Preview only"),
-            ("Technician", selected_daily_tech, "Selected view"),
-        ])
+            report_summary_cards([
+                ("Daily Entries", daily_entries, "Selected date"),
+                ("Total Labour Amount", f"₹{daily_labour:,.0f}", "PDF shows this"),
+                ("Spare Amount", f"₹{daily_spare:,.0f}", "Preview only"),
+                ("Technician", selected_daily_tech, "Selected view"),
+            ])
 
-        daily_show_cols = [
-            "Technician Name", "Date", "Job Card Number", "Registration Number",
-            "Bike Model", "Service Type", "Labour Amount", "Status"
-        ]
-        daily_existing_cols = [c for c in daily_show_cols if c in daily_df.columns]
-        st.dataframe(daily_df[daily_existing_cols] if daily_existing_cols else daily_df, use_container_width=True)
+            daily_show_cols = [
+                "Technician Name", "Date", "Job Card Number", "Registration Number",
+                "Bike Model", "Service Type", "Labour Amount", "Status"
+            ]
+            daily_existing_cols = [c for c in daily_show_cols if c in daily_df.columns]
+            st.dataframe(daily_df[daily_existing_cols] if daily_existing_cols else daily_df, use_container_width=True)
 
-        if st.button("Generate Daily Technician Report PDF", use_container_width=True, key="generate_daily_tech_report"):
-            daily_pdf = generate_daily_technician_report_pdf(daily_df, report_date, selected_daily_tech)
-            st.session_state["daily_technician_report_pdf"] = daily_pdf
-            st.success("Daily technician service report PDF generated.")
+            if st.button("Generate Daily Technician Report PDF", use_container_width=True, key="generate_daily_tech_report"):
+                daily_pdf = generate_daily_technician_report_pdf(daily_df, report_date, selected_daily_tech)
+                st.session_state["daily_technician_report_pdf"] = daily_pdf
+                st.success("Daily technician service report PDF generated.")
 
-        if st.session_state.get("daily_technician_report_pdf"):
-            daily_pdf_path = st.session_state["daily_technician_report_pdf"]
-            if Path(daily_pdf_path).exists():
-                with open(daily_pdf_path, "rb") as f:
-                    st.download_button(
-                        "Download Daily Technician Service Report PDF",
-                        f,
-                        file_name=Path(daily_pdf_path).name,
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key="download_daily_tech_report"
-                    )
+            if st.session_state.get("daily_technician_report_pdf"):
+                daily_pdf_path = st.session_state["daily_technician_report_pdf"]
+                if Path(daily_pdf_path).exists():
+                    with open(daily_pdf_path, "rb") as f:
+                        st.download_button(
+                            "Download Daily Technician Service Report PDF",
+                            f,
+                            file_name=Path(daily_pdf_path).name,
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key="download_daily_tech_report"
+                        )
 
     # ============================================================
     # TAB 3 - MONTHLY ATTENDANCE REPORT
@@ -5020,12 +5118,15 @@ def page_reports():
             if "Date" in att_df.columns:
                 att_df["Date"] = att_df["Date"].astype(str).apply(_norm_date)
 
-            st.markdown("""
-            <div class="monthly-att-panel">
-                <h3>📍 Monthly Attendance Control</h3>
-                <p>Month select pannunga. All users or particular user monthly attendance report PDF download pannalam.</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                """
+                <div class="monthly-att-panel">
+                    <h3>📍 Monthly Attendance Control</h3>
+                    <p>Month select pannunga. All users or particular user monthly attendance report PDF download pannalam.</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
             if is_technician() or is_prathisha():
                 selected_att_user = st.session_state.get("employee_name", "")
@@ -5050,7 +5151,9 @@ def page_reports():
                         if x.strip()
                     ])
                     selected_att_user = st.selectbox("Select User", users, key="monthly_attendance_user")
-                    att_df = att_df[att_df["Technician Name"].astype(str).str.strip() == selected_att_user.strip()]
+                    att_df = att_df[
+                        att_df["Technician Name"].astype(str).str.strip() == selected_att_user.strip()
+                    ]
 
             current_month = app_now().strftime("%m-%Y")
             month_key = st.text_input("Month Filter MM-YYYY", value=current_month, key="monthly_attendance_month")
@@ -5069,35 +5172,41 @@ def page_reports():
 
             present_count = len(att_df[att_df["Attendance Status"].astype(str).str.lower() == "present"]) if "Attendance Status" in att_df.columns else 0
 
-            report_summary_cards([
-                ("Monthly Rows", len(att_df), "Selected month"),
-                ("Present Count", present_count, "GPS marked"),
-                ("Selected User", selected_att_user, "Monthly view"),
-                ("Month", month_key, "Report month"),
-            ])
+            if len(att_df) == 0:
+                st.error("No monthly attendance rows matched the selected month / user filter.")
+                st.info("Fix: check month format MM-YYYY and verify Technician Name / User ID values in attendance sheet.")
+            else:
+                report_summary_cards([
+                    ("Monthly Rows", len(att_df), "Selected month"),
+                    ("Present Count", present_count, "GPS marked"),
+                    ("Selected User", selected_att_user, "Monthly view"),
+                    ("Month", month_key, "Report month"),
+                ])
 
-            att_cols = ["Date", "Time", "User ID", "Technician Name", "Role", "Attendance Status", "Distance Meter", "Selfie Saved"]
-            att_existing_cols = [c for c in att_cols if c in att_df.columns]
-            st.dataframe(att_df[att_existing_cols] if att_existing_cols else att_df, use_container_width=True)
+                att_cols = ["Date", "Time", "User ID", "Technician Name", "Role", "Attendance Status", "Distance Meter", "Selfie Saved"]
+                att_existing_cols = [c for c in att_cols if c in att_df.columns]
+                st.dataframe(att_df[att_existing_cols] if att_existing_cols else att_df, use_container_width=True)
 
-            if st.button("Generate Monthly Attendance PDF Report", use_container_width=True, key="generate_monthly_attendance_pdf_report"):
-                att_pdf = generate_monthly_attendance_report_pdf(att_df, month_key, selected_att_user)
-                st.session_state["monthly_attendance_report_pdf"] = att_pdf
-                st.success("Monthly Attendance PDF report generated.")
+                if st.button("Generate Monthly Attendance PDF Report", use_container_width=True, key="generate_monthly_attendance_pdf_report"):
+                    att_pdf = generate_monthly_attendance_report_pdf(att_df, month_key, selected_att_user)
+                    st.session_state["monthly_attendance_report_pdf"] = att_pdf
+                    st.success("Monthly Attendance PDF report generated.")
 
-            if st.session_state.get("monthly_attendance_report_pdf"):
-                att_pdf_path = st.session_state["monthly_attendance_report_pdf"]
-                if Path(att_pdf_path).exists():
-                    with open(att_pdf_path, "rb") as f:
-                        st.download_button(
-                            "Download Monthly Attendance PDF Report",
-                            f,
-                            file_name=Path(att_pdf_path).name,
-                            mime="application/pdf",
-                            use_container_width=True,
-                            key="download_monthly_attendance_pdf_report"
-                        )
+                if st.session_state.get("monthly_attendance_report_pdf"):
+                    att_pdf_path = st.session_state["monthly_attendance_report_pdf"]
+                    if Path(att_pdf_path).exists():
+                        with open(att_pdf_path, "rb") as f:
+                            st.download_button(
+                                "Download Monthly Attendance PDF Report",
+                                f,
+                                file_name=Path(att_pdf_path).name,
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key="download_monthly_attendance_pdf_report"
+                            )
 
+    if not debug_issues:
+        st.caption("✅ No error found")
 # ============================================================
 # SEARCH
 # ============================================================
