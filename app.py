@@ -5997,7 +5997,7 @@ def main():
         page_reports()
     elif page == "Search":
         page_search()
-    elif selected_page == "Hero Bikes":
+    elif page == "Hero Bikes":
         page_hero_bikes()
     elif page == "Customer Service History":
         page_customer_service_history()
@@ -6398,7 +6398,7 @@ def main():
         page_reports()
     elif page == "Search":
         page_search()
-    elif selected_page == "Hero Bikes":
+    elif page == "Hero Bikes":
         page_hero_bikes()
     elif page == "Customer Service History":
         page_customer_service_history()
