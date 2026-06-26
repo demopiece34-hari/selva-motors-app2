@@ -7,8 +7,7 @@ import zipfile
 import time as time_module
 import json
 import base64
-from pages.technician_daily_service_report import 
-page_technician_daily_service_report
+from pages.technician_daily_service_report import page_technician_daily_service_report
 from pages.hero_bikes_catalog_en_th import page_hero_bikes
 from debug.debug_engine import *
 from pathlib import Path
