@@ -6001,7 +6001,7 @@ def main():
         page_search()
     elif page == "Hero Bikes":
         page_hero_bikes()
-    elif page == "Technician Daily Report":
+    elif page == "Daily Service Report":
         page_technician_daily_service_report(
             read_sheet=read_sheet,
             today_str=today_str,
@@ -6410,7 +6410,7 @@ def main():
         page_search()
     elif page == "Hero Bikes":
         page_hero_bikes()
-    elif page == "Technician Daily Report":
+    elif page == "Daily Service Report":
         page_technician_daily_service_report(
             read_sheet=read_sheet,
             today_str=today_str,
