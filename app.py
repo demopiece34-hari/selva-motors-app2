@@ -6001,8 +6001,14 @@ def main():
         page_search()
     elif page == "Hero Bikes":
         page_hero_bikes()
-    elif page == "Daily Service Report":
-        page_technician_daily_service_report()
+    elif page == "Technician Daily Report":
+        page_technician_daily_service_report(
+            read_sheet=read_sheet,
+            today_str=today_str,
+            generate_report_pdf=generate_report_pdf,
+            report_summary_cards=report_summary_cards,
+            clean_reg_no=clean_reg_no,
+        )
     elif page == "Customer Service History":
         page_customer_service_history()
     elif page == "Manual Invoice Generator":
@@ -6404,8 +6410,14 @@ def main():
         page_search()
     elif page == "Hero Bikes":
         page_hero_bikes()
-    elif page == "Daily Service Report":
-        page_technician_daily_service_report()
+    elif page == "Technician Daily Report":
+        page_technician_daily_service_report(
+            read_sheet=read_sheet,
+            today_str=today_str,
+            generate_report_pdf=generate_report_pdf,
+            report_summary_cards=report_summary_cards,
+            clean_reg_no=clean_reg_no,
+        )
     elif page == "Customer Service History":
         page_customer_service_history()
     elif page == "Manual Invoice Generator":
