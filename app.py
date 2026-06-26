@@ -7,6 +7,7 @@ import zipfile
 import time as time_module
 import json
 import base64
+from pages.technician_daily_service_report import page_technician_daily_service_report
 from pages.hero_bikes_catalog_en_th import page_hero_bikes
 from debug.debug_engine import *
 from pathlib import Path
@@ -3878,7 +3879,7 @@ def menu_page():
         ]
     elif is_technician():
         pages = [
-            "Dashboard", "Attendance", "Upload Invoice", "Search",
+            "Dashboard", "Attendance", "Upload Invoice", "Daily Service Report", "Search",
             "Customer Service History", "Manual Invoice Generator",
             "Delete Invoice Request", "Hero Bikes"
         ]
@@ -3894,6 +3895,7 @@ def menu_page():
         "Reports": "📑",
         "Search": "🔍",
         "Hero Bikes": "🏍️",
+        "Daily Service Report": "📋",
         "Customer Service History": "🧾",
         "Manual Invoice Generator": "🧾",
         "Admin Panel": "⚙️",
@@ -5999,6 +6001,8 @@ def main():
         page_search()
     elif page == "Hero Bikes":
         page_hero_bikes()
+    elif page == "Daily Service Report":
+        page_technician_daily_service_report()
     elif page == "Customer Service History":
         page_customer_service_history()
     elif page == "Manual Invoice Generator":
@@ -6400,6 +6404,8 @@ def main():
         page_search()
     elif page == "Hero Bikes":
         page_hero_bikes()
+    elif page == "Daily Service Report":
+        page_technician_daily_service_report()
     elif page == "Customer Service History":
         page_customer_service_history()
     elif page == "Manual Invoice Generator":
