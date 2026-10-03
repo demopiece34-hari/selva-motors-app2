@@ -4222,58 +4222,54 @@ def make_circle_hero_logo_for_pdf(size=230):
     except Exception:
         return ""
 
-
-
-
+        
 def draw_pdf_header(c, w, h, title, subtitle="", right_line1="", right_line2=""):
     """
-    Unified professional PDF header for Manual Bill and Daily Technician Report.
-    Correct SELVA MOTORS placement + circular Hero logo.
+    White background and Pure Black Text header for clear printouts.
     """
-    # Top red/black gradient-like blocks
-    c.setFillColor(colors.HexColor("#111827"))
+    # 1. Background-a White aakidrom
+    c.setFillColor(colors.white)
     c.rect(0, h - 112, w, 112, fill=True, stroke=False)
+    
+    # Left side-la oru chinna red design line
     c.setFillColor(colors.HexColor("#E31837"))
     c.rect(0, h - 112, 14, 112, fill=True, stroke=False)
-    c.setFillColor(colors.HexColor("#7F0016"))
-    c.rect(w - 135, h - 112, 135, 112, fill=True, stroke=False)
 
     # Circle logo
     logo_path = make_circle_hero_logo_for_pdf()
     if logo_path:
         c.drawImage(logo_path, 32, h - 98, width=68, height=68, mask="auto")
     else:
-        c.setFillColor(colors.white)
+        c.setFillColor(colors.black)
         c.circle(66, h - 64, 34, fill=True, stroke=False)
-        c.setFillColor(colors.HexColor("#E31837"))
+        c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 14)
         c.drawCentredString(66, h - 69, "HERO")
 
-    # Company block - single clean placement
-    c.setFillColor(colors.white)
+    # 2. Company Name & Details - Pure Black Text
+    c.setFillColor(colors.black) # PURE BLACK COLOR
     c.setFont("Helvetica-Bold", 18)
     c.drawString(115, h - 45, "SELVA MOTORS")
 
     c.setFont("Helvetica", 8)
-    c.setFillColor(colors.HexColor("#E5E7EB"))
     c.drawString(115, h - 61, "KATCHANAM MAIN ROAD, KILVELUR")
     c.drawString(115, h - 76, subtitle or "Authorised Hero Service Document")
 
-    # Title right side
-    c.setFillColor(colors.white)
+    # 3. Right side Title & Date - Pure Black Text
+    c.setFillColor(colors.black)
     c.setFont("Helvetica-Bold", 15)
     c.drawRightString(w - 36, h - 42, title)
+    
     c.setFont("Helvetica", 8)
     if right_line1:
         c.drawRightString(w - 36, h - 60, right_line1)
     if right_line2:
         c.drawRightString(w - 36, h - 76, right_line2)
 
-    # Divider
+    # Bottom Divider line
     c.setStrokeColor(colors.HexColor("#E31837"))
     c.setLineWidth(2)
     c.line(34, h - 116, w - 34, h - 116)
-
 
 def pdf_label_value_box(c, x, y, width, label, value, accent="#F8FAFC"):
     c.setFillColor(colors.HexColor(accent))
