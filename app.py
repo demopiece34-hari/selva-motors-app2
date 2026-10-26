@@ -3867,9 +3867,6 @@ def menu_page():
         st.session_state.clear()
         st.rerun()
         
-    if "Extra Fittings" not in pages:
-        pages.append("Extra Fittings")
-    
     if is_admin():
         pages = [
             "Dashboard", "Reports", "Search", "Hero Bikes",
@@ -3906,6 +3903,9 @@ def menu_page():
         "Delete Invoice Request": "🗑️",
         "Extra Fittings": "🧾",
     }
+    if "Extra Fittings" not in pages:
+        pages.append("Extra Fittings")
+    
     labels = [f"{icons.get(p, '•')} {p}" for p in pages]
     selected_label = st.sidebar.radio("Menu", labels, label_visibility="collapsed")
     selected_page = selected_label.split(" ", 1)[1]
