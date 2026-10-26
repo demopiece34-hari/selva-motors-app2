@@ -1,0 +1,206 @@
+{
+  "catalogue_name": "SELVA MOTORS configurable Hero vehicle starter catalogue",
+  "last_checked": "2026-10-26",
+  "catalogue_note": "Offline starter list only; not a live dealer inventory and not a guarantee of current availability. Model names reflect the official Hero MotoCorp India website lineup checked on the date above plus the requested configurable/legacy models. Variant names are populated only where labels could be confirmed from official pages. Confirm vehicle model and variant against current dealer records and the vehicle documents. Add or remove entries here as showroom stock and official model names change. Any model can be entered manually in the app.",
+  "source_pages": [
+    "https://www.heromotocorp.com/en-in.html",
+    "https://www.heromotocorp.com/en-in/motorcycles.html",
+    "https://www.heromotocorp.com/en-in/scooters.html",
+    "https://www.heromotocorp.com/en-in/motorcycles/splendor-plus.html",
+    "https://www.heromotocorp.com/en-in/motorcycles/xtreme-125r.html",
+    "https://www.heromotocorp.com/en-in/motorcycles/glamour-x.html"
+  ],
+  "categories": {
+    "Motorcycle": [
+      {
+        "name": "Splendor Plus",
+        "variants": [
+          "SPLENDOR + DRUM BRAKE OBD2B",
+          "SPLENDOR + I3S OBD2B",
+          "SPLENDOR + SPECIAL EDITIONS OBD2B",
+          "SPLENDOR + 125 MILLION EDITION"
+        ],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles/splendor-plus.html"
+      },
+      {
+        "name": "Splendor Plus XTEC",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles/splendor-plus.html"
+      },
+      {
+        "name": "Splendor Plus XTEC 2.0",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles/splendor-plus.html"
+      },
+      {
+        "name": "Splendor+ Flex",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in.html"
+      },
+      {
+        "name": "HF Deluxe",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles/hf-deluxe.html"
+      },
+      {
+        "name": "HF Deluxe Flex",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in.html"
+      },
+      {
+        "name": "HF 100",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in.html"
+      },
+      {
+        "name": "Glamour",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in.html"
+      },
+      {
+        "name": "Glamour X",
+        "variants": [
+          "Drum Variant",
+          "Disc Variant"
+        ],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles/glamour-x.html"
+      },
+      {
+        "name": "Glamour X ABS",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in.html"
+      },
+      {
+        "name": "Passion Plus",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in.html"
+      },
+      {
+        "name": "Xtreme 125R",
+        "variants": [
+          "XTREME 125R DUAL CHANNEL ABS",
+          "XTREME 125R ABS SINGLE SEAT",
+          "XTREME 125R ABS OBD2B",
+          "XTREME 125R IBS OBD2B"
+        ],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles/xtreme-125r.html"
+      },
+      {
+        "name": "Xtreme 160R",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles.html"
+      },
+      {
+        "name": "Xtreme 160R 4V",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles.html"
+      },
+      {
+        "name": "Xtreme 200S",
+        "variants": [],
+        "status": "configurable-legacy",
+        "source_url": ""
+      },
+      {
+        "name": "Xtreme 250R",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles.html"
+      },
+      {
+        "name": "Xpulse 200 4V",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles.html"
+      },
+      {
+        "name": "Xpulse 210",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles/xpulse-210.html"
+      },
+      {
+        "name": "Karizma XMR",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/motorcycles.html"
+      },
+      {
+        "name": "Super Splendor XTEC",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in.html"
+      },
+      {
+        "name": "Super Splendor XTEC 2.0",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in.html"
+      }
+    ],
+    "Scooter": [
+      {
+        "name": "Destini 110",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/scooters.html"
+      },
+      {
+        "name": "Destini 125",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/scooters.html"
+      },
+      {
+        "name": "Destini Prime",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/scooters.html"
+      },
+      {
+        "name": "Xoom 110",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/scooters.html"
+      },
+      {
+        "name": "Xoom 125",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/scooters.html"
+      },
+      {
+        "name": "Xoom 160",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/scooters.html"
+      },
+      {
+        "name": "Pleasure+ XTEC",
+        "variants": [],
+        "status": "official-listing",
+        "source_url": "https://www.heromotocorp.com/en-in/scooters.html"
+      },
+      {
+        "name": "Pleasure+",
+        "variants": [],
+        "status": "configurable-legacy",
+        "source_url": ""
+      }
+    ]
+  }
+}
