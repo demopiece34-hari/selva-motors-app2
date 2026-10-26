@@ -3866,7 +3866,10 @@ def menu_page():
     if st.sidebar.button("Logout", use_container_width=True):
         st.session_state.clear()
         st.rerun()
-
+        
+    if "Extra Fittings" not in pages:
+        pages.append("Extra Fittings")
+    
     if is_admin():
         pages = [
             "Dashboard", "Reports", "Search", "Hero Bikes",
@@ -3884,7 +3887,7 @@ def menu_page():
             "Delete Invoice Request", "Hero Bikes"
         ]
     elif is_prathisha():
-        pages = ["Dashboard", "Attendance", "Hero Bikes"]
+        pages = ["Dashboard", "Attendance", "Hero Bikes", "Extra Fittings"]
     else:
         pages = ["Dashboard"]
 
@@ -3901,6 +3904,7 @@ def menu_page():
         "Admin Panel": "⚙️",
         "Duplicate Upload Finder": "🔁",
         "Delete Invoice Request": "🗑️",
+        "Extra Fittings": "🧾",
     }
     labels = [f"{icons.get(p, '•')} {p}" for p in pages]
     selected_label = st.sidebar.radio("Menu", labels, label_visibility="collapsed")
@@ -6371,6 +6375,18 @@ def main():
         page_manual_invoice()
     elif page == "Delete Invoice Request":
         page_delete_invoice_request()
+
+    elif page == "Extra Fittings":
+        try:
+            from extra_fittings import render_extra_fittings_page
+            render_extra_fittings_page()
+        except Exception as exc:
+            st.error(
+                "Extra Fittings page could not be loaded. "
+                "The rest of Selva Motors is still available."
+            )
+            with st.expander("Technical details"):
+                st.code(str(exc))
     elif page == "Admin Panel":
         if is_admin():
             page_admin_panel()
