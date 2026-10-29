@@ -2710,7 +2710,7 @@ def count_genuine_spare_items(text):
         # Real item row starts with serial number.
         # Example:
         # "1"
-        # "2 SPDMCYL09SS-HERO 4T ..."
+        # "2 SPDMCYL02SS-HERO 4T ..."
         # Avoid continuation like "10W30..." because digit+letter has no word boundary.
         if re.match(r"^\d+\b", line) and not re.match(r"^\d{4,}", line):
             count += 1
@@ -2759,7 +2759,7 @@ def detect_oil(text):
     Detect Hero engine oil internally.
     Supports:
 
-    SPDMCYL02SS-HERO 4T PLUS 900 ML MA2
+    SPDMCYL02SS-HERO 4T PLUS 10W30 SL MA2 (900 ML)
     SPDMCYL09SS-HERO 4T PLUS 10W30 SL MA2 (1000 ML)
     SPDSCOT01SS-HERO 4T PLUS 10W30 SL MB (800 ML)
 
@@ -2781,7 +2781,7 @@ def detect_oil(text):
         r"SPDSCOT01SS",
 
         # Full Oil Descriptions
-        r"HERO\s*4T\s*PLUS\s*900\s*ML\s*MA2",
+        r"HERO\s*4T\s*PLUS\s*10W30\s*ML\s*MA2",
         r"HERO\s*4T\s*PLUS\s*10W30\s*SL\s*MA2",
         r"HERO\s*4T\s*PLUS\s*10W30\s*SL\s*MB",
 
