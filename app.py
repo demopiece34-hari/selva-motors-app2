@@ -6388,8 +6388,10 @@ def main():
             )
             with st.expander("Technical details"):
                 st.code(str(exc))
-    elif page == "LETTER PAD":
+    elif menu_selection == "LETTER PAD":
+        from letter_pad import render_letter_pad_page
         render_letter_pad_page()
+        
     elif page == "Admin Panel":
         if is_admin():
             page_admin_panel()
