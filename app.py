@@ -3875,7 +3875,7 @@ def menu_page():
     elif is_manager():
         pages = [
             "Dashboard", "Attendance", "Reports", "Search", "Hero Bikes",
-            "Customer Service History", "Manual Invoice Generator", "Duplicate Upload Finder"
+            "Customer Service History", "Manual Invoice Generator", "Duplicate Upload Finder", "LETTER PAD",
         ]
     elif is_technician():
         pages = [
@@ -3902,6 +3902,7 @@ def menu_page():
         "Duplicate Upload Finder": "🔁",
         "Delete Invoice Request": "🗑️",
         "Extra Fittings": "🧾",
+        "LETTER PAD": "🗺️",
     }
     if "Extra Fittings" not in pages:
         pages.append("Extra Fittings")
@@ -6387,6 +6388,8 @@ def main():
             )
             with st.expander("Technical details"):
                 st.code(str(exc))
+    elif menu_selection == "LETTER PAD":
+        render_letter_pad_page()
     elif page == "Admin Panel":
         if is_admin():
             page_admin_panel()
