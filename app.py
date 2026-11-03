@@ -6388,7 +6388,7 @@ def main():
             )
             with st.expander("Technical details"):
                 st.code(str(exc))
-    elif menu_selection == "LETTER PAD":
+    elif page == "LETTER PAD":
         render_letter_pad_page()
     elif page == "Admin Panel":
         if is_admin():
