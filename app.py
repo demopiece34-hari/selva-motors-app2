@@ -7,7 +7,6 @@ import zipfile
 import time as time_module
 import json
 import base64
-import render_letter_pad_page
 from pages.technician_daily_service_report import page_technician_daily_service_report
 from pages.hero_bikes_catalog_en_th import page_hero_bikes
 from debug.debug_engine import *
