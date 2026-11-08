@@ -9,7 +9,7 @@ import streamlit as st
 # Local photo support + full specifications + BikeWale links
 # ============================================================
 
-ASSET_DIR = Path(__file__).resolve().parent / "assets" / "hero_bikes"
+ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "hero_bikes"
 
 
 def _t(lang: str, key: str) -> str:
