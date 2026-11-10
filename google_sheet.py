@@ -23,7 +23,7 @@ except Exception:  # pragma: no cover - useful for isolated tests
 
 AUTH_SHEET = "employees"
 REPORT_SHEETS = {"invoices", "attendance"}
-APPEND_SHEETS = {"employees", "attendance", "invoices", "delete_requests", "manual_invoices"}
+APPEND_SHEETS = {"employees", "attendance", "invoices", "delete_requests", "manual_invoices", "employee_profiles", "employee_roles", "employee_permissions", "employee_salary", "salary_history", "employee_access_logs", "salary_policies"}
 RANGE_UPDATE_SHEETS = {"employees", "delete_requests"}
 ROW_DELETE_SHEETS = {"invoices"}
 AUTH_COLUMNS = ["User ID", "Password", "Employee Name", "Role", "Status"]
@@ -98,6 +98,14 @@ def _column_name(index: int) -> str:
     return result
 
 
+def _has_live_streamlit_context() -> bool:
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        return get_script_run_ctx(suppress_warning=True) is not None
+    except Exception:
+        return False
+
+
 @dataclass
 class GoogleSheetsAccess:
     """Small injectable gateway; accepts a fake client in unit tests."""
@@ -153,6 +161,21 @@ class GoogleSheetsAccess:
         elif purpose == "report":
             allowed = sheet_name in REPORT_SHEETS and bool(columns)
             selected_columns = list(columns or [])
+        elif purpose in {"access_config", "employee_admin", "self_profile", "payroll"}:
+            role = str(st.session_state.get("role", "")) if st is not None else ""
+            access = st.session_state.get("_employee_access", {}) if st is not None else {}
+            permissions = set(access.get("permissions", []))
+            is_admin = role in {"Admin", "Super Admin"} or bool(access.get("is_admin"))
+            logged_in = bool(st.session_state.get("logged_in")) if st is not None else False
+            if purpose == "access_config":
+                allowed = logged_in and sheet_name in {"employee_roles", "employee_permissions"}
+            elif purpose == "employee_admin":
+                allowed = logged_in and is_admin and sheet_name in {"employees", "employee_profiles", "employee_roles", "employee_permissions", "employee_access_logs"}
+            elif purpose == "self_profile":
+                allowed = logged_in and sheet_name in {"employee_profiles", "employee_salary", "salary_history"}
+            else:
+                allowed = logged_in and (is_admin or "salary_management" in permissions) and sheet_name in {"employees", "employee_salary", "salary_history", "salary_policies"}
+            selected_columns = list(columns or self.schemas.get(sheet_name, []))
         else:
             allowed = False
             selected_columns = []
@@ -236,6 +259,21 @@ class GoogleSheetsAccess:
 
     def append_row(self, sheet_name: str, row: Mapping[str, Any], *, columns: Optional[list[str]] = None) -> tuple[bool, str]:
         try:
+            management_sheets = {"employee_profiles", "employee_roles", "employee_permissions", "employee_access_logs"}
+            payroll_sheets = {"employee_salary", "salary_history", "salary_policies"}
+            if sheet_name in management_sheets | payroll_sheets | {"employees"}:
+                role = str(st.session_state.get("role", "")) if st is not None else ""
+                access = st.session_state.get("_employee_access", {}) if st is not None else {}
+                permissions = set(access.get("permissions", []))
+                is_admin = role in {"Admin", "Super Admin"} or bool(access.get("is_admin"))
+                if _has_live_streamlit_context():
+                    if not bool(st.session_state.get("logged_in")):
+                        raise PermissionError("Management writes require an authenticated session.")
+                    if sheet_name in payroll_sheets and not (is_admin or "salary_management" in permissions):
+                        raise PermissionError("Payroll write denied: salary management permission required.")
+                    if sheet_name in management_sheets | {"employees"} and not is_admin:
+                        if sheet_name != "employee_profiles" or "photo_upload" not in permissions or str(row.get("User ID", "")).casefold() != str(st.session_state.get("user_id", "")).casefold():
+                            raise PermissionError("Employee management write denied. Admin access is required.")
             self._ensure_write_sheet(sheet_name, APPEND_SHEETS, "APPEND")
             ordered_columns = list(columns or self.schemas.get(sheet_name, list(row.keys())))
             if not ordered_columns or any(column not in self.schemas[sheet_name] for column in ordered_columns):
@@ -255,8 +293,61 @@ class GoogleSheetsAccess:
         except Exception as exc:
             return False, str(exc)
 
+    def append_rows_atomic(self, entries: list[tuple[str, Mapping[str, Any]]]) -> tuple[bool, str]:
+        """Append rows across worksheets in one Google Sheets batchUpdate request."""
+        try:
+            if not entries:
+                return False, "No rows supplied for atomic append."
+            role = str(st.session_state.get("role", "")) if st is not None else ""
+            access = st.session_state.get("_employee_access", {}) if st is not None else {}
+            permissions = set(access.get("permissions", []))
+            is_admin = role in {"Admin", "Super Admin"} or bool(access.get("is_admin"))
+            if _has_live_streamlit_context():
+                if not bool(st.session_state.get("logged_in")):
+                    raise PermissionError("Atomic management writes require an authenticated session.")
+                for sheet_name, row in entries:
+                    if sheet_name in {"employee_salary", "salary_history", "salary_policies"} and not (is_admin or "salary_management" in permissions):
+                        raise PermissionError("Payroll write denied.")
+                    if sheet_name in {"employees", "employee_profiles", "employee_roles", "employee_permissions", "employee_access_logs"} and not is_admin:
+                        raise PermissionError("Employee management atomic writes are Admin-only.")
+            requests = []
+            for sheet_name, row in entries:
+                self._ensure_write_sheet(sheet_name, APPEND_SHEETS, "ATOMIC APPEND")
+                columns = list(self.schemas.get(sheet_name, []))
+                if not columns:
+                    raise PermissionError(f"Missing schema for {sheet_name}.")
+                worksheet = self._get_worksheet(sheet_name)
+                cells = []
+                for column in columns:
+                    value = row.get(column, "")
+                    if isinstance(value, bool):
+                        entered = {"boolValue": value}
+                    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                        entered = {"numberValue": float(value)}
+                    else:
+                        entered = {"stringValue": str(value if value is not None else "")}
+                    cells.append({"userEnteredValue": entered})
+                requests.append({"appendCells": {"sheetId": int(worksheet.id), "rows": [{"values": cells}], "fields": "userEnteredValue"}})
+            spreadsheet = self._get_spreadsheet()
+            _record_api_call("WRITE", "spreadsheet.batch_update", ",".join(x[0] for x in entries), "atomic_management_write", True, f"Atomically append {len(entries)} row(s) across worksheets.")
+            spreadsheet.batch_update({"requests": requests})
+            return True, "Rows appended atomically."
+        except Exception as exc:
+            return False, str(exc)
+
     def update_range(self, sheet_name: str, range_name: str, values: list[list[Any]]) -> tuple[bool, str]:
         try:
+            role = str(st.session_state.get("role", "")) if st is not None else ""
+            access = st.session_state.get("_employee_access", {}) if st is not None else {}
+            permissions = set(access.get("permissions", []))
+            is_admin = role in {"Admin", "Super Admin"} or bool(access.get("is_admin"))
+            if _has_live_streamlit_context():
+                if not bool(st.session_state.get("logged_in")):
+                    raise PermissionError("Employee account updates require an authenticated session.")
+                if sheet_name == "employees" and not is_admin:
+                    raise PermissionError("Employee account updates are Admin-only.")
+                if sheet_name == "delete_requests" and not is_admin:
+                    raise PermissionError("Delete request approval is restricted to Admin.")
             self._ensure_write_sheet(sheet_name, RANGE_UPDATE_SHEETS, "RANGE UPDATE")
             normalized_range = str(range_name).upper()
             allowed_ranges = (r"B\d+:E\d+", r"C\d+:E\d+") if sheet_name == "employees" else (r"H\d+:I\d+",)
@@ -399,6 +490,10 @@ def read_sheet(sheet_name: str, *, purpose: Optional[str] = None, columns: Optio
 
 def append_row(sheet_name: str, row: Mapping[str, Any], *, columns: Optional[list[str]] = None) -> tuple[bool, str]:
     return _get_default_gateway().append_row(sheet_name, row, columns=columns)
+
+
+def append_rows_atomic(entries: list[tuple[str, Mapping[str, Any]]]) -> tuple[bool, str]:
+    return _get_default_gateway().append_rows_atomic(entries)
 
 
 def update_range(sheet_name: str, range_name: str, values: list[list[Any]]) -> tuple[bool, str]:

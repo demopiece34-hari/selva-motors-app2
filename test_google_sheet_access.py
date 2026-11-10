@@ -21,6 +21,7 @@ SCHEMAS = {
         "Latitude", "Longitude", "Distance Meter", "Selfie Saved",
     ],
     "delete_requests": ["Request ID", "Date", "Time", "Entry ID", "Technician Name", "User ID", "Reason", "Request Status", "Admin Action Date"],
+    "employee_profiles": ["User ID", "Designation", "Department"],
 }
 
 
@@ -109,6 +110,7 @@ class GoogleSheetsAccessTests(unittest.TestCase):
             "invoices": invoices,
             "attendance": attendance,
             "delete_requests": delete_requests,
+            "employee_profiles": FakeWorksheet([SCHEMAS["employee_profiles"]], worksheet_id=5),
         }
         self.spreadsheet = FakeSpreadsheet(self.worksheets)
         self.client = FakeClient(self.spreadsheet)
@@ -156,6 +158,18 @@ class GoogleSheetsAccessTests(unittest.TestCase):
         events = get_api_call_audit()
         self.assertTrue(any(event["function"] == "append_row" and event["operation"] == "WRITE" for event in events))
         self.assertFalse(any(event["operation"] in {"worksheet.get", "worksheet.batch_get"} for event in events))
+
+    def test_atomic_append_batches_employee_and_profile_rows_together(self):
+        ok, message = self.gateway.append_rows_atomic([
+            ("employees", {"User ID": "new1", "Password": "hash", "Employee Name": "New Employee", "Role": "Technician", "Status": "Active"}),
+            ("employee_profiles", {"User ID": "new1", "Designation": "Mechanic", "Department": "Service"}),
+        ])
+        self.assertTrue(ok, message)
+        self.assertEqual(len(self.spreadsheet.batch_update_calls), 1)
+        requests = self.spreadsheet.batch_update_calls[0]["requests"]
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(requests[0]["appendCells"]["sheetId"], self.worksheets["employees"].id)
+        self.assertEqual(requests[1]["appendCells"]["sheetId"], self.worksheets["employee_profiles"].id)
 
     def test_range_update_and_delete_are_write_operations(self):
         self.assertTrue(self.gateway.update_range("employees", "C2:E2", [["Hari", "Admin", "Active"]])[0])
