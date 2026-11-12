@@ -5,7 +5,6 @@ import math
 import time as time_module
 import base64
 from ui_modules.hero_bikes_catalog_en_th import page_hero_bikes
-from ui_modules.hero_invoice_loader import show_hero_invoice_loader
 from pathlib import Path
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
