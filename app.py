@@ -4,6 +4,7 @@ import uuid
 import math
 import time as time_module
 import base64
+from ui_modules.jobcard_print import show_jobcard_print
 from ui_modules.hero_bikes_catalog_en_th import page_hero_bikes
 from pathlib import Path
 from datetime import datetime, time
@@ -3948,7 +3949,9 @@ def main():
         page_login()
         return
     selected_page = menu_page()
-    if selected_page == "Attendance":
+    if selected_page == "JOBCARD":
+        show_jobcard_print()
+    elif selected_page == "Attendance":
         page_attendance()
     elif selected_page == "Upload Invoice":
         page_upload_invoice()
