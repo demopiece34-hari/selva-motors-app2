@@ -3926,7 +3926,7 @@ def menu_page():
     if is_admin():
         pages = ["Reports", "Attendance", "Admin Panel", "Hero Bikes", "Manual Invoice Generator", "Extra Fittings"]
     elif is_manager():
-        pages = ["Attendance", "Reports", "Manual Invoice Generator", "Hero Bikes", "LETTER PAD", "Extra Fittings"]
+        pages = ["Attendance", "Reports", "Manual Invoice Generator", "Hero Bikes", "LETTER PAD", "Extra Fittings", "JOBCARD"]
     elif is_technician():
         pages = ["Attendance", "Upload Invoice", "Daily Service Report", "Manual Invoice Generator", "Delete Invoice Request", "Hero Bikes"]
     elif is_prathisha():
