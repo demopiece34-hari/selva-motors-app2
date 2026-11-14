@@ -3936,7 +3936,7 @@ def menu_page():
     icons = {
         "Reports": "📑", "Attendance": "📍", "Admin Panel": "⚙️", "Hero Bikes": "🏍️",
         "Manual Invoice Generator": "🧾", "Extra Fittings": "📋", "Upload Invoice": "📄",
-        "Daily Service Report": "📊", "Delete Invoice Request": "🗑️", "LETTER PAD": "📝",
+        "Daily Service Report": "📊", "Delete Invoice Request": "🗑️", "LETTER PAD": "📝", "JOBCARD": "📄",
     }
     labels = [f"{icons.get(page, '•')} {page}" for page in pages]
     selected = st.sidebar.radio("Menu", labels, label_visibility="collapsed")
