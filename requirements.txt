@@ -1,0 +1,13 @@
+streamlit
+pandas
+gspread
+google-auth
+pillow
+qrcode
+reportlab
+pdfplumber
+PyPDF2
+pytesseract
+streamlit-js-eval
+openpyxl
+pdf2image
