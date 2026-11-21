@@ -1,0 +1,4 @@
+tesseract-ocr
+poppler-utils
+fonts-noto-core
+fonts-dejavu-core

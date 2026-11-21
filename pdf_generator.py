@@ -1,24 +1,26 @@
-"""Reusable premium Hero / Selva Motors PDF report builder."""
+"""Reusable branded SELVA MOTORS PDF report builder (ReportLab)."""
 from __future__ import annotations
 
 import html
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import (
+    KeepTogether,
     LongTable,
+    PageBreak,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -36,17 +38,26 @@ WHITE = colors.white
 _FONT_NAME = "Helvetica"
 _BOLD_FONT_NAME = "Helvetica-Bold"
 _FONT_READY = False
+_TAMIL_FONT_READY = False
 
 
 def _register_font() -> None:
-    global _FONT_NAME, _BOLD_FONT_NAME, _FONT_READY
-    if _FONT_READY:
+    """Register a broad Latin/rupee font plus Tamil fallback for mixed-language reports."""
+    global _FONT_NAME, _BOLD_FONT_NAME, _FONT_READY, _TAMIL_FONT_READY
+    if _FONT_READY and _TAMIL_FONT_READY:
         return
-    candidates = [
-        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
-        ("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf", "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"),
+
+    latin_candidates = [
+        (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ),
+        (
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        ),
     ]
-    for regular_path, bold_path in candidates:
+    for regular_path, bold_path in latin_candidates:
         if Path(regular_path).exists() and Path(bold_path).exists():
             try:
                 pdfmetrics.registerFont(TTFont("SelvaSans", regular_path))
@@ -56,6 +67,36 @@ def _register_font() -> None:
             except Exception:
                 continue
     _FONT_READY = True
+
+    tamil_candidates = [
+        (
+            "/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansTamil-Bold.ttf",
+        ),
+        (
+            "/usr/share/fonts/opentype/noto/NotoSansTamil-Regular.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansTamil-Bold.ttf",
+        ),
+    ]
+    for regular_path, bold_path in tamil_candidates:
+        if Path(regular_path).exists() and Path(bold_path).exists():
+            try:
+                pdfmetrics.registerFont(TTFont("SelvaTamil", regular_path))
+                pdfmetrics.registerFont(TTFont("SelvaTamil-Bold", bold_path))
+                _TAMIL_FONT_READY = True
+                break
+            except Exception:
+                continue
+    if not _TAMIL_FONT_READY:
+        _TAMIL_FONT_READY = True  # Do not repeatedly scan paths; primary font remains the safe fallback.
+
+
+def _pdf_text(value: Any) -> str:
+    """Escape text and switch Tamil codepoints to the embedded Tamil font when installed."""
+    escaped = html.escape(_safe_text(value))
+    if "SelvaTamil" in pdfmetrics.getRegisteredFontNames():
+        escaped = re.sub(r"([\u0B80-\u0BFF]+)", r'<font name="SelvaTamil">\1</font>', escaped)
+    return escaped
 
 
 def _safe_text(value: Any) -> str:
@@ -70,7 +111,7 @@ def _safe_text(value: Any) -> str:
 
 
 def format_inr(value: Any) -> str:
-    """Format rupees with Indian lakh/crore digit grouping and two decimals."""
+    """Format rupees with Indian lakh/crore grouping and two decimals."""
     try:
         amount = float(str(value).replace(",", "").replace("₹", "").replace("Rs.", "").strip() or 0)
     except Exception:
@@ -89,16 +130,23 @@ def format_inr(value: Any) -> str:
     return f"{prefix}{sign}{integer_text}.{decimal_text}"
 
 
-def _currency_column(column: str) -> bool:
-    text = column.lower()
-    return any(term in text for term in ("amount", "revenue", "labour", "spare"))
+def _is_currency_column(column: str) -> bool:
+    text = str(column).casefold()
+    terms = (
+        "amount", "revenue", "labour", "spare", "oil", "sales", "collection",
+        "expense", "salary", "balance", "gross", "net remaining", "total service",
+    )
+    return any(term in text for term in terms)
 
 
 def _format_cell(column: str, value: Any) -> str:
     text = _safe_text(value)
-    if _currency_column(column) and text:
-        return html.escape(format_inr(text))
-    return html.escape(text).replace("\n", "<br/>")
+    if text and _is_currency_column(column):
+        try:
+            return _pdf_text(format_inr(text))
+        except Exception:
+            pass
+    return _pdf_text(text).replace("\n", "<br/>")
 
 
 def _find_asset(asset_name: str) -> Optional[Path]:
@@ -106,69 +154,110 @@ def _find_asset(asset_name: str) -> Optional[Path]:
         Path("assets") / asset_name,
         Path(__file__).resolve().parent / "assets" / asset_name,
     ]
-    return next((p for p in candidates if p.exists()), None)
+    return next((path for path in candidates if path.exists()), None)
 
 
-def _letterpad_watermark():
-    path = _find_asset("selva_letterpad_bg.png")
-    if not path:
-        return None
-    try:
-        from PIL import Image
-        image = Image.open(path).convert("RGBA")
-        alpha = image.getchannel("A").point(lambda value: int(value * 0.055))
-        image.putalpha(alpha)
-        return ImageReader(image)
-    except Exception:
-        return None
+class _HeroPagePainter:
+    """Draw the approved Hero logo and SELVA MOTORS identity on each page."""
 
-
-class _HeroCanvas:
-    """Page callback helper for a consistent header/footer on every page."""
-
-    def __init__(self, generated_at: str, report_title: str, page_size=A4):
+    def __init__(self, generated_at: str, page_size, report_title: str, period_text: str = ""):
         self.generated_at = generated_at
-        self.report_title = report_title
         self.page_size = page_size
+        self.report_title = report_title
+        self.period_text = period_text
         self.logo = _find_asset("hero_logo.png")
-        self.watermark = _letterpad_watermark()
 
-    def on_page(self, canvas, doc):
-        canvas.saveState()
+    def draw(self, pdf_canvas, page_number: int, total_pages: int) -> None:
         width, height = self.page_size
-        if self.watermark:
-            try:
-                canvas.drawImage(self.watermark, 0, 0, width=width, height=height, mask="auto", preserveAspectRatio=False)
-            except Exception:
-                pass
+        pdf_canvas.saveState()
 
-        # Branded red rule and logo.
+        # Header: Hero logo left, business identity right.
         if self.logo:
             try:
-                canvas.drawImage(str(self.logo), 15 * mm, height - 25 * mm, width=52 * mm, height=17 * mm,
-                                 preserveAspectRatio=True, anchor="c", mask="auto")
+                pdf_canvas.drawImage(
+                    str(self.logo), 15 * mm, height - 22 * mm,
+                    width=48 * mm, height=16 * mm,
+                    preserveAspectRatio=True, anchor="c", mask="auto",
+                )
             except Exception:
                 pass
-        canvas.setFillColor(INK)
-        canvas.setFont(_BOLD_FONT_NAME, 8)
-        canvas.drawRightString(width - 15 * mm, height - 14 * mm, "SELVA MOTORS ERP")
-        canvas.setFillColor(HERO_RED)
-        canvas.setStrokeColor(HERO_RED)
-        canvas.setLineWidth(1.4)
-        canvas.line(15 * mm, height - 28 * mm, width - 15 * mm, height - 28 * mm)
 
-        canvas.setStrokeColor(BORDER)
-        canvas.setLineWidth(0.5)
-        canvas.line(15 * mm, 13 * mm, width - 15 * mm, 13 * mm)
-        canvas.setFillColor(SLATE)
-        canvas.setFont(_FONT_NAME, 7)
-        canvas.drawString(15 * mm, 8.5 * mm, "SELVA MOTORS  |  Confidential business report")
-        canvas.drawRightString(width - 15 * mm, 8.5 * mm, f"Page {doc.page}")
-        canvas.restoreState()
+        pdf_canvas.setFillColor(INK)
+        pdf_canvas.setFont(_BOLD_FONT_NAME, 14)
+        pdf_canvas.drawRightString(width - 15 * mm, height - 13 * mm, "SELVA MOTORS")
+        pdf_canvas.setFillColor(SLATE)
+        pdf_canvas.setFont(_FONT_NAME, 8)
+        pdf_canvas.drawRightString(width - 15 * mm, height - 18 * mm, "Near Bypass, Kilvelur")
+
+        title_style = ParagraphStyle(
+            "SelvaRunningHeaderTitle", fontName=_BOLD_FONT_NAME, fontSize=8.5,
+            leading=10, textColor=INK, alignment=TA_LEFT,
+        )
+        title_paragraph = Paragraph(_pdf_text(self.report_title), title_style)
+        title_paragraph.wrapOn(pdf_canvas, width - 30 * mm, 8 * mm)
+        title_paragraph.drawOn(pdf_canvas, 15 * mm, height - 30 * mm)
+        if self.period_text:
+            pdf_canvas.setFillColor(SLATE)
+            pdf_canvas.setFont(_FONT_NAME, 7)
+            pdf_canvas.drawString(15 * mm, height - 34 * mm, self.period_text[:100])
+
+        pdf_canvas.setStrokeColor(HERO_RED)
+        pdf_canvas.setLineWidth(1.5)
+        pdf_canvas.line(15 * mm, height - 36 * mm, width - 15 * mm, height - 36 * mm)
+
+        # Footer: generation timestamp and actual total page count.
+        pdf_canvas.setStrokeColor(BORDER)
+        pdf_canvas.setLineWidth(0.55)
+        pdf_canvas.line(15 * mm, 14 * mm, width - 15 * mm, 14 * mm)
+        pdf_canvas.setFillColor(SLATE)
+        pdf_canvas.setFont(_FONT_NAME, 7)
+        pdf_canvas.drawString(15 * mm, 9 * mm, f"SELVA MOTORS  |  Generated: {self.generated_at}")
+        pdf_canvas.drawRightString(width - 15 * mm, 9 * mm, f"Page {page_number} of {total_pages}")
+        pdf_canvas.restoreState()
+
+
+class _NumberedCanvas(rl_canvas.Canvas):
+    """Canvas that waits until the total page count is known before painting footers."""
+
+    def __init__(self, *args, page_painter: _HeroPagePainter, **kwargs):
+        self._page_painter = page_painter
+        self._saved_page_states = []
+        super().__init__(*args, **kwargs)
+
+    def showPage(self):  # noqa: N802 - ReportLab API
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            page_number = self._pageNumber
+            self._page_painter.draw(self, page_number, total_pages)
+            super().showPage()
+        super().save()
+
+
+def _normalize_sections(
+    dataframe: Optional[pd.DataFrame],
+    sections: Optional[Iterable[tuple[str, pd.DataFrame]]],
+) -> list[tuple[str, pd.DataFrame]]:
+    normalized: list[tuple[str, pd.DataFrame]] = []
+    if sections is not None:
+        for title, frame in sections:
+            safe_frame = frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame(frame or [])
+            normalized.append((str(title or "Report Details"), safe_frame))
+    elif isinstance(dataframe, pd.DataFrame):
+        normalized.append(("Report Details", dataframe.copy()))
+    elif dataframe is not None:
+        normalized.append(("Report Details", pd.DataFrame(dataframe)))
+    else:
+        normalized.append(("Report Details", pd.DataFrame()))
+    return normalized or [("Report Details", pd.DataFrame())]
 
 
 def generate_professional_report_pdf(
-    dataframe: pd.DataFrame,
+    dataframe: Optional[pd.DataFrame],
     title: str,
     output_path: str | Path,
     *,
@@ -176,79 +265,96 @@ def generate_professional_report_pdf(
     kpis: Optional[Iterable[tuple[str, Any]]] = None,
     columns: Optional[list[str]] = None,
     report_kind: str = "service",
+    sections: Optional[Iterable[tuple[str, pd.DataFrame]]] = None,
 ) -> str:
-    """Render a consistent A4 report with wrapped tables and repeated headers."""
+    """Create a branded, paginated A4 PDF with repeated table headers."""
     _register_font()
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    safe_title = re.sub(r"[^A-Za-z0-9 _-]", "", title).strip() or "Selva Motors Report"
+    safe_title = re.sub(r"[\r\n]+", " ", _safe_text(title)) or "SELVA MOTORS Report"
     metadata = dict(metadata or {})
     generated_at = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y %I:%M:%S %p")
 
+    report_sections = _normalize_sections(dataframe, sections)
+    prepared_sections: list[tuple[str, pd.DataFrame]] = []
+    for section_title, frame in report_sections:
+        df = frame.copy()
+        if report_kind == "daily_technician":
+            df = df.drop(columns=["Total Amount"], errors="ignore")
+        if section_title == "Report Details" and columns:
+            visible = [col for col in columns if col in df.columns]
+            df = df[visible]
+        prepared_sections.append((section_title, df))
+
+    max_columns = max((len(frame.columns) for _, frame in prepared_sections), default=0)
+    page_size = landscape(A4) if max_columns >= 8 else A4
+    page_width = page_size[0]
+
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "SelvaTitle", parent=styles["Title"], fontName=_BOLD_FONT_NAME, fontSize=17,
-        leading=21, textColor=INK, alignment=TA_LEFT, spaceAfter=4,
-    )
     meta_style = ParagraphStyle(
-        "SelvaMeta", parent=styles["Normal"], fontName=_FONT_NAME, fontSize=8,
-        leading=11, textColor=SLATE,
+        "SelvaMeta", parent=styles["Normal"], fontName=_FONT_NAME,
+        fontSize=7.5, leading=10, textColor=SLATE,
+    )
+    section_style = ParagraphStyle(
+        "SelvaSection", parent=styles["Heading2"], fontName=_BOLD_FONT_NAME,
+        fontSize=9.5, leading=12, textColor=HERO_RED, spaceBefore=5,
+        spaceAfter=4, keepWithNext=True,
     )
     cell_style = ParagraphStyle(
-        "SelvaCell", parent=styles["Normal"], fontName=_FONT_NAME, fontSize=7,
-        leading=9, textColor=INK, wordWrap="CJK",
+        "SelvaCell", parent=styles["Normal"], fontName=_FONT_NAME,
+        fontSize=6.7, leading=8.5, textColor=INK, wordWrap="CJK",
     )
     header_style = ParagraphStyle(
-        "SelvaHeader", parent=cell_style, fontName=_BOLD_FONT_NAME, fontSize=7,
-        leading=8, textColor=WHITE,
+        "SelvaHeader", parent=cell_style, fontName=_BOLD_FONT_NAME,
+        fontSize=6.5, leading=8, textColor=WHITE,
     )
     kpi_label_style = ParagraphStyle(
-        "SelvaKpiLabel", parent=meta_style, fontName=_BOLD_FONT_NAME, fontSize=7,
-        textColor=SLATE, alignment=TA_CENTER,
+        "SelvaKpiLabel", parent=meta_style, fontName=_BOLD_FONT_NAME,
+        fontSize=7, leading=8.5, textColor=SLATE, alignment=TA_CENTER,
     )
     kpi_value_style = ParagraphStyle(
-        "SelvaKpiValue", parent=meta_style, fontName=_BOLD_FONT_NAME, fontSize=12,
-        leading=15, textColor=INK, alignment=TA_CENTER,
+        "SelvaKpiValue", parent=meta_style, fontName=_BOLD_FONT_NAME,
+        fontSize=11.5, leading=14, textColor=INK, alignment=TA_CENTER,
     )
 
-    df = dataframe.copy() if dataframe is not None else pd.DataFrame()
-    if report_kind == "daily_technician":
-        # The daily technician PDF deliberately excludes Total Amount.
-        df = df.drop(columns=["Total Amount"], errors="ignore")
-    if columns:
-        visible = [col for col in columns if col in df.columns]
-        df = df[visible]
-    page_size = landscape(A4) if len(df.columns) >= 8 else A4
-
-    story = [Spacer(1, 2 * mm), Paragraph(html.escape(safe_title), title_style)]
-    meta_parts = [f"<b>Generated:</b> {html.escape(generated_at)}"]
+    story = [Spacer(1, 1 * mm)]
+    meta_parts = []
     for key, value in metadata.items():
         if value not in (None, ""):
-            meta_parts.append(f"<b>{html.escape(str(key))}:</b> {html.escape(_safe_text(value))}")
+            meta_parts.append(f"<b>{_pdf_text(key)}:</b> {_pdf_text(value)}")
+    meta_parts.append(f"<b>Report Generated:</b> {html.escape(generated_at)}")
     story.append(Paragraph("&nbsp;&nbsp; | &nbsp;&nbsp;".join(meta_parts), meta_style))
-    story.append(Spacer(1, 5 * mm))
+    story.append(Spacer(1, 4 * mm))
 
     kpi_items = list(kpis or [])
     if kpi_items:
-        kpi_cells = []
-        for label, value in kpi_items:
-            if isinstance(value, (int, float)) and any(word in str(label).lower() for word in ("revenue", "amount", "labour", "spare")):
-                display = format_inr(value)
-            else:
-                display = _safe_text(value)
-            kpi_cells.append([
-                Paragraph(html.escape(str(label)), kpi_label_style),
-                Paragraph(html.escape(display), kpi_value_style),
-            ])
+        story.append(Paragraph("Summary at a Glance", section_style))
         grid_rows = []
-        for index in range(0, len(kpi_cells), 4):
-            chunk = kpi_cells[index:index + 4]
-            chunk += [[Paragraph("", kpi_label_style), Paragraph("", kpi_value_style)]] * (4 - len(chunk))
+        for offset in range(0, len(kpi_items), 4):
+            row_items = kpi_items[offset:offset + 4]
+            cells = []
+            for label, value in row_items:
+                is_money = any(word in str(label).casefold() for word in (
+                    "amount", "sales", "labour", "spare", "oil", "collection",
+                    "expense", "salary", "balance", "revenue", "gross", "net",
+                ))
+                if is_money:
+                    display = format_inr(value)
+                elif isinstance(value, (int, float)):
+                    display = f"{value:,.2f}" if isinstance(value, float) and not float(value).is_integer() else f"{int(value):,}"
+                else:
+                    display = _safe_text(value)
+                cells.append([
+                    Paragraph(_pdf_text(label), kpi_label_style),
+                    Paragraph(_pdf_text(display), kpi_value_style),
+                ])
+            while len(cells) < 4:
+                cells.append([Paragraph("", kpi_label_style), Paragraph("", kpi_value_style)])
             grid_rows.append([
-                Table([[cell[0]], [cell[1]]], colWidths=[(page_size[0] - 34 * mm) / 4 - 5 * mm])
-                for cell in chunk
+                Table([[item[0]], [item[1]]], colWidths=[(page_width - 30 * mm) / 4 - 3 * mm])
+                for item in cells
             ])
-        kpi_table = Table(grid_rows, colWidths=[(page_size[0] - 30 * mm) / 4] * 4, hAlign="LEFT")
+        kpi_table = Table(grid_rows, colWidths=[(page_width - 30 * mm) / 4] * 4, hAlign="LEFT")
         kpi_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, -1), PALE),
             ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
@@ -256,53 +362,50 @@ def generate_professional_report_pdf(
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("LEFTPADDING", (0, 0), (-1, -1), 4),
             ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ]))
-        story.extend([kpi_table, Spacer(1, 5 * mm)])
+        story.extend([kpi_table, Spacer(1, 4 * mm)])
 
-    story.append(Paragraph("Report Details", ParagraphStyle(
-        "SelvaSection", parent=styles["Heading2"], fontName=_BOLD_FONT_NAME,
-        fontSize=10, leading=13, textColor=HERO_RED, spaceAfter=3,
-    )))
+    usable_width = page_width - 30 * mm
+    for section_title, frame in prepared_sections:
+        story.append(Paragraph(_pdf_text(section_title), section_style))
+        if frame.empty:
+            story.append(Paragraph("No records matched the selected filters.", meta_style))
+            story.append(Spacer(1, 2 * mm))
+            continue
 
-    if df.empty:
-        story.append(Paragraph("No records matched the selected filters.", meta_style))
-    else:
-        headers = list(df.columns)
-        available_width = page_size[0] - 30 * mm
-        # Set practical relative widths: dates/amounts compact, descriptive text flexible.
+        headers = [str(column) for column in frame.columns]
         weights = []
         for column in headers:
-            label = column.lower()
-            if any(key in label for key in ("job card", "registration", "date", "time", "status", "role", "user id", "count")):
+            label = column.casefold()
+            if any(key in label for key in ("job card", "registration", "date", "time", "status", "count", "quantity")):
                 weights.append(1.0)
-            elif any(key in label for key in ("amount", "revenue", "labour", "spare")):
+            elif _is_currency_column(label):
                 weights.append(1.05)
-            elif any(key in label for key in ("bike model", "technician", "name", "service type")):
-                weights.append(1.45)
+            elif any(key in label for key in ("technician", "customer", "description", "service type", "bike model", "vehicle")):
+                weights.append(1.55)
             else:
-                weights.append(1.15)
+                weights.append(1.2)
         total_weight = sum(weights) or 1.0
-        col_widths = [available_width * weight / total_weight for weight in weights]
+        col_widths = [usable_width * weight / total_weight for weight in weights]
 
-        table_data = [[Paragraph(html.escape(str(head)), header_style) for head in headers]]
-        for _, row in df.iterrows():
+        table_data = [[Paragraph(_pdf_text(header), header_style) for header in headers]]
+        for _, row in frame.iterrows():
             table_data.append([
                 Paragraph(_format_cell(column, row.get(column, "")), cell_style)
                 for column in headers
             ])
 
-        details = LongTable(
+        detail_table = LongTable(
             table_data,
             colWidths=col_widths,
             repeatRows=1,
             splitByRow=1,
             hAlign="LEFT",
         )
-        details.setStyle(TableStyle([
+        detail_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), INK),
-            ("TEXTCOLOR", (0, 0), (-1, 0), WHITE),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, PALE]),
             ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -311,23 +414,28 @@ def generate_professional_report_pdf(
             ("TOPPADDING", (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
-        story.append(details)
+        story.append(detail_table)
+        story.append(Spacer(1, 3 * mm))
 
-    # Wide reports (eight or more columns) use landscape A4 for readable fields
-    # without clipping or excessive wrapping. Daily technician reports stay portrait.
-    page_painter = _HeroCanvas(generated_at, safe_title, page_size=page_size)
+    period_text = next((f"{key}: {_safe_text(value)}" for key, value in metadata.items() if str(key).casefold() in {"report period", "report date", "month"} and value not in (None, "")), "")
+    page_painter = _HeroPagePainter(generated_at, page_size=page_size, report_title=safe_title, period_text=period_text)
     doc = SimpleDocTemplate(
         str(output), pagesize=page_size,
         rightMargin=15 * mm, leftMargin=15 * mm,
-        topMargin=34 * mm, bottomMargin=20 * mm,
-        title=safe_title, author="SELVA MOTORS ERP",
+        topMargin=40 * mm, bottomMargin=20 * mm,
+        title=safe_title, author="SELVA MOTORS",
     )
-    doc.build(story, onFirstPage=page_painter.on_page, onLaterPages=page_painter.on_page)
+
+    def canvas_factory(*args, **kwargs):
+        return _NumberedCanvas(*args, page_painter=page_painter, **kwargs)
+
+    doc.build(story, canvasmaker=canvas_factory)
     return str(output)
 
 
-# Compatibility wrapper used by older code paths; new report pages call the
-# professional generator directly and always supply a report_kind.
 def simple_pdf(output_path, title, rows, subtitle="SELVA MOTORS"):
+    """Compatibility wrapper retained for existing non-report callers."""
     frame = pd.DataFrame(rows[1:], columns=rows[0]) if rows else pd.DataFrame()
-    return Path(generate_professional_report_pdf(frame, title, output_path, metadata={"Subtitle": subtitle}))
+    return Path(generate_professional_report_pdf(
+        frame, title, output_path, metadata={"Subtitle": subtitle},
+    ))
